@@ -117,7 +117,8 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
   >([]);
   const [showSettings, setShowSettings] = useState(false);
 
-  const { sendMessage } = useChat();
+  const { sendMessage, settings } = useChat();
+  const hasApiKey = !!settings.keys[settings.provider];
   const voice = useVoice();
   const activeRef = useRef(false);
   const processingRef = useRef(false);
@@ -150,6 +151,18 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       }));
 
       try {
+        // Check if API key is set
+        if (!hasApiKey) {
+          const msg = "No API key set! Open Settings to add your free Groq, Gemini, or OpenRouter key.";
+          setConversation((prev) => [
+            ...prev,
+            { role: "maya", text: msg, time: Date.now() },
+          ]);
+          await voice.speak(msg);
+          restartListeningAfterSpeech();
+          return;
+        }
+
         if (isAutomationCommand(text)) {
           const result = executeAutomation(text);
           if (result) {
@@ -177,16 +190,31 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
           { role: "maya", text: response, time: Date.now() },
         ]);
 
-        if (activeRef.current) {
+        // Speak the response if it's not an error
+        if (activeRef.current && response && !response.startsWith("❌") && !response.startsWith("⏳")) {
           await voice.speak(response);
           restartListeningAfterSpeech();
+        } else if (activeRef.current) {
+          // Error response - just restart listening
+          restartListeningAfterSpeech();
         }
-      } catch {
+      } catch (error: any) {
+        const errMsg = error?.message || "Unknown error";
+        const userMsg = errMsg.includes("Invalid") || errMsg.includes("401")
+          ? "Invalid API key. Check your key in Settings."
+          : errMsg.includes("429") || errMsg.includes("Rate limit")
+            ? "Rate limited! Wait a moment and try again."
+            : errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError")
+              ? "Network error. Check your internet."
+              : `Error: ${errMsg}`;
         setConversation((prev) => [
           ...prev,
-          { role: "maya", text: "Sorry, error occurred. Try again.", time: Date.now() },
+          { role: "maya", text: userMsg, time: Date.now() },
         ]);
-        restartListeningAfterSpeech();
+        if (activeRef.current) {
+          await voice.speak(userMsg).catch(() => {});
+          restartListeningAfterSpeech();
+        }
       } finally {
         processingRef.current = false;
       }
@@ -205,12 +233,14 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       setIsActive(true);
       setConversation([]);
 
-      const greetings = [
-        "Hey! Maya here. What can I do for you?",
-        "Hi there! I'm listening.",
-        "Maya online! Tell me what you need.",
-        "Ready! What would you like me to do?",
-      ];
+      const greetings = hasApiKey
+        ? [
+            "Hey! Maya here. What can I do for you?",
+            "Hi there! I'm listening.",
+            "Maya online! Tell me what you need.",
+            "Ready! What would you like me to do?",
+          ]
+        : ["Hey! Please set an API key in Settings first, then I can help you!"];
       const greeting = greetings[Math.floor(Math.random() * greetings.length)];
       setConversation([{ role: "maya", text: greeting, time: Date.now() }]);
 

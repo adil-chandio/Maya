@@ -260,15 +260,18 @@ export function useVoice() {
     setIsSpeaking(false);
   }, []);
 
-  // Request microphone permission (required on Android/Capacitor)
+  // Request microphone permission (cached - don't request every time)
+  const micPermissionRef = useRef<boolean | null>(null);
   const requestMicPermission = useCallback(async (): Promise<boolean> => {
-    // Try browser MediaDevices API (works in both browser and Capacitor WebView)
+    // Return cached result if available
+    if (micPermissionRef.current !== null) return micPermissionRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(t => t.stop());
+      micPermissionRef.current = true;
       return true;
     } catch {
-      // Permission denied or not available
+      micPermissionRef.current = false;
       return false;
     }
   }, []);
