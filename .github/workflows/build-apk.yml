@@ -13,10 +13,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
 
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -28,13 +26,13 @@ jobs:
       uses: android-actions/setup-android@v3
 
     - name: Install dependencies
-      run: npm install --legacy-peer-deps
+      run: bun install
 
-    - name: Build web app (skip TypeScript check)
-      run: npx vite build
+    - name: Build web app
+      run: bun run build
 
     - name: Sync Capacitor
-      run: npx cap sync android
+      run: bunx cap sync android
 
     - name: Make gradlew executable
       run: chmod +x android/gradlew
