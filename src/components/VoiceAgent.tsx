@@ -145,12 +145,24 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       setIsActive(true);
       setConversation([]);
 
-      // Start listening in single-shot mode (not continuous)
-      setTimeout(() => {
-        if (activeRef.current) {
-          voice.startListening(handleVoiceMessage, false);
-        }
-      }, 500);
+      // Voice greeting - Maya speaks first, then listens
+      const greetings = [
+        "Hey! Maya here. What can I do for you?",
+        "Hi there! I'm listening.",
+        "Maya online! Tell me what you need.",
+        "Ready! What would you like me to do?",
+      ];
+      const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+      setConversation([{ role: "maya", text: greeting, time: Date.now() }]);
+
+      // Speak greeting then start listening
+      voice.speak(greeting).then(() => {
+        setTimeout(() => {
+          if (activeRef.current) {
+            voice.startListening(handleVoiceMessage, false);
+          }
+        }, 500);
+      });
     }
   }, [voice, handleVoiceMessage]);
 

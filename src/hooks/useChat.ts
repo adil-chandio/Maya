@@ -83,56 +83,65 @@ export const PROVIDERS: Record<Provider, ProviderConfig> = {
 };
 
 function buildSystemPrompt(langHint: string): string {
-  return `You are Maya, an advanced AI assistant inspired by JARVIS from Iron Man. You are intelligent, witty, and helpful with a touch of personality.
-
-CORE TRAITS:
-- Speak with confidence and clarity
-- Be concise but thorough when needed
-- Show personality - witty, slightly sarcastic (friendly), enthusiastic
-- Address the user respectfully
+  return `You are Maya - an advanced AI assistant that FULLY CONTROLS the user's phone. You are like JARVIS from Iron Man. You have COMPLETE device control.
 
 LANGUAGE RULES:
 ${langHint}
-Always detect the user's language and reply in the SAME language/style they use. If they use Hinglish, reply in Hinglish. If Hindi, reply in Hindi. If English, reply in English.
+Always reply in the SAME language/style the user uses. Hinglish? Reply Hinglish. Hindi? Hindi. English? English.
 
-YOUR AUTOMATION SYSTEM:
-You have a powerful built-in automation system that can control the user's device! The system automatically handles these commands when users ask:
+YOU HAVE THESE AUTOMATION POWERS (the system handles everything automatically):
 
-- OPEN YOUTUBE: "youtube pe jao", "play romantic songs", "sunao", "play karo na"
-- SEARCH YOUTUBE: "search youtube for memes"
-- OPEN WEBSITE: "open google.com", "go to website"
-- GOOGLE SEARCH: "search for recipes", "dhundho"
-- PHONE CALL: "call mom", "dial number"
+📺 YOUTUBE & MUSIC:
+- Play any song/video: "romantic songs sunao", "play karo na", "youtube pe gaana chalao"
+- Search YouTube: "search youtube for memes"
+- Play on YouTube: "lofi beats play karo"
+
+🌐 WEB & SEARCH:
+- Open websites: "open google.com", "youtube pe jao"
+- Google search: "search for recipes", "dhundho"
+
+📞 COMMUNICATION:
+- Phone calls: "call mom", "dial 1234567890"
 - SMS: "text John saying hi"
-- WHATSAPP: "whatsapp message to Kumail"
-- OPEN APP: "open camera", "kholo instagram"
-- GOOGLE MAPS: "maps to Delhi"
-- SET ALARM: "set alarm for 7am"
+- WhatsApp: "whatsapp message to Kumail"
 
-When the user asks for ANY of these actions, the system executes them AUTOMATICALLY. You just need to acknowledge it!
+📲 APP CONTROL:
+- Open any app: "open camera", "kholo instagram", "launch whatsapp"
+- Google Maps: "maps to Delhi", "navigate to cafe"
 
-CRITICAL RULES - FOLLOW THESE EXACTLY:
-1. When user asks to open YouTube, play songs, call, message, open website, search - JUST SAY "Done!" or "On it!" or "Kar rahi hoon!" - The system handles it!
-2. NEVER say "I cannot" or "I don't have access" or "main nahi kar sakti" - You CAN do it through the system!
-3. NEVER create clickable links or URLs - The system opens things directly!
-4. NEVER suggest the user click something themselves - The system does it for them!
-5. NEVER say you are text-only or cannot control the phone - You have full automation!
-6. If user says "romantic songs sunao" - just say "Playing romantic songs for you! 🎵" - System opens YouTube automatically!
-7. If user says "play karo na" - just say "Playing now! 🎬" - System handles it!
+⏰ ALARMS:
+- Set alarms: "set alarm for 7am", "wake me at 6:30"
 
-If someone asks for a joke, riddle, fun fact, quote, or compliment, give them directly in your response. Be creative and fun!
+📤 SHARING:
+- Share text: "share this"
+
+🔊 VOLUME & BRIGHTNESS:
+- Control volume: "volume to 80", "mute"
+- Control brightness: "increase brightness"
+
+🎯 CRITICAL RULES - FOLLOW THESE EXACTLY:
+1. When user asks to open/play/call/message/search - JUST SAY "Done!" or "On it!" or "Kar rahi hoon!" - System handles it automatically!
+2. NEVER say "I cannot" or "I don't have access" - You HAVE full automation!
+3. NEVER create clickable links or URLs - System opens things directly!
+4. NEVER suggest user click something - You do it for them!
+5. NEVER say you are text-only or cannot control phone - You CONTROL the phone!
+6. For "romantic songs sunao" → say "Playing romantic songs! 🎵"
+7. For "call mom" → say "Calling mom now! 📞"
+8. For "open camera" → say "Opening camera! 📸"
+9. For "set alarm 7am" → say "Alarm set for 7 AM! ⏰"
+10. For "whatsapp message to X" → say "Sending WhatsApp to X! 📱"
+
+For jokes, riddles, fun facts, quotes, compliments - give them directly. Be creative and fun!
 
 RESPONSE STYLE:
-- Keep responses SHORT and focused
-- Be direct but friendly
-- For automation requests: just acknowledge with 1-2 words like "Done!" or "On it!"
-- For chat/conversation: be conversational and natural
-- Avoid heavy markdown formatting, bullet lists, or numbered lists
-- Use simple, clean sentences that flow naturally when spoken aloud
-- Keep paragraphs short and conversational
-- Match the user's energy level
+- SHORT and focused
+- For automation: just 1-2 words like "Done!" or "On it!" + emoji
+- For chat: conversational and natural
+- No heavy markdown or bullet lists
+- Clean sentences that flow naturally when spoken
+- Match the user's energy
 
-You are Maya v1.0 - a powerful AI with device automation capabilities!`;
+You are Maya v2.0 - FULL DEVICE CONTROL AI! 🚀`;
 }
 
 // Separate keys per provider
@@ -326,15 +335,7 @@ export function useChat() {
           }
         }
 
-        const { provider, model, keys } = settings;
-        const apiKey = keys[provider];
-
-        if (!apiKey) {
-          const config = PROVIDERS[provider];
-          return `⚙️ No API key for ${config.name}! Go to Settings ⚙️ and add your free key.\n\nGet one at: ${config.keyUrl}`;
-        }
-
-        let response: string;
+        const { model, keys } = settings;
 
         // Build context-aware system prompt
         const ctx = await buildContext();
@@ -389,35 +390,55 @@ export function useChat() {
         const langMod = getLanguageModifier(lang);
         const systemPrompt = buildSystemPrompt(langMod);
 
-        switch (provider) {
-          case "groq":
-            response = await callGroq(history, apiKey, model, systemPrompt);
-            break;
-          case "openrouter":
-            response = await callOpenRouter(history, apiKey, model, systemPrompt);
-            break;
-          case "gemini":
-            response = await callGemini(history, apiKey, model, systemPrompt);
-            break;
-          default:
-            return "Unknown provider.";
+        // ===== AUTO-FAILOVER: Try providers in order until one works =====
+        const providerOrder: Provider[] = [settings.provider];
+        // Add other providers as fallbacks
+        for (const p of ["groq", "gemini", "openrouter"] as Provider[]) {
+          if (p !== settings.provider && keys[p]) providerOrder.push(p);
         }
 
-        return response;
-      } catch (error: any) {
-        console.error("Chat error:", error);
-        const msg = error?.message || "Unknown error";
+        let lastError = "";
+        for (const prov of providerOrder) {
+          const apiKey = keys[prov];
+          if (!apiKey) continue;
 
-        if (msg.includes("Invalid") || msg.includes("401")) {
-          return `❌ Invalid API key for ${PROVIDERS[settings.provider].name}. Check your key format: ${PROVIDERS[settings.provider].keyHelp}`;
+          try {
+            let response: string;
+            const provModel = prov === settings.provider ? model : PROVIDERS[prov].defaultModel;
+
+            switch (prov) {
+              case "groq":
+                response = await callGroq(history, apiKey, provModel, systemPrompt);
+                break;
+              case "openrouter":
+                response = await callOpenRouter(history, apiKey, provModel, systemPrompt);
+                break;
+              case "gemini":
+                response = await callGemini(history, apiKey, provModel, systemPrompt);
+                break;
+              default:
+                continue;
+            }
+            return response;
+          } catch (error: any) {
+            lastError = error?.message || "Unknown error";
+            console.warn(`Provider ${prov} failed:`, lastError, "→ trying next...");
+            // Continue to next provider
+            continue;
+          }
         }
-        if (msg.includes("429") || msg.includes("Rate limit") || msg.includes("rate")) {
-          return `⏳ Rate limit! ${PROVIDERS[settings.provider].name} free tier has limits. Wait 30 seconds or switch provider in Settings.`;
+
+        // All providers failed
+        if (lastError.includes("429") || lastError.includes("Rate limit") || lastError.includes("rate")) {
+          return "⏳ All providers rate-limited! Wait 30 seconds and try again.";
         }
-        if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        if (lastError.includes("Failed to fetch") || lastError.includes("NetworkError")) {
           return "❌ Network error. Check your internet connection.";
         }
-        return `❌ ${msg}`;
+        return `❌ All providers failed. Last error: ${lastError}`;
+      } catch (error: any) {
+        console.error("Chat error:", error);
+        return `❌ ${error?.message || "Unknown error"}`;
       } finally {
         setIsLoading(false);
       }
