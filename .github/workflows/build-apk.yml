@@ -25,10 +25,6 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Install SDK 36
-      run: |
-        sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
-
     - name: Install dependencies
       run: bun install
 
@@ -44,13 +40,10 @@ jobs:
     - name: Build APK
       run: cd android && ./gradlew assembleDebug --no-daemon
 
-    - name: Find APK
-      run: find android -name "*.apk" -type f
-
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: MAYA-APK
-        path: android/**/*.apk
-        if-no-files-found: error
+        path: android/app/build/outputs/apk/**/*.apk
+        if-no-files-found: warn
         retention-days: 30
