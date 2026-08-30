@@ -17,7 +17,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '22'
-        cache: 'npm'
 
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -29,7 +28,7 @@ jobs:
       uses: android-actions/setup-android@v3
 
     - name: Install dependencies
-      run: npm install
+      run: npm install --legacy-peer-deps
 
     - name: Build web app
       run: npm run build
@@ -37,14 +36,15 @@ jobs:
     - name: Sync Capacitor
       run: npx cap sync android
 
+    - name: Make gradlew executable
+      run: chmod +x android/gradlew
+
     - name: Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug --no-daemon
+      run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
+      if: success()
       with:
         name: MAYA-APK
         path: android/app/build/outputs/apk/debug/app-debug.apk
