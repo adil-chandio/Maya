@@ -312,6 +312,72 @@ async function callGemini(messages: ChatMessage[], apiKey: string, model: string
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
 }
 
+// ===== STREAMING: Call provider with streaming =====
+async function* streamGroq(messages: ChatMessage[], apiKey: string, model: string, systemPrompt?: string): AsyncGenerator<string> {
+  const response = await fetch(PROVIDERS.groq.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model, stream: true,
+      messages: [{ role: "system", content: systemPrompt || buildSystemPrompt("") }, ...messages.slice(-15)],
+      temperature: 0.7, max_tokens: 2048,
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Groq error ${response.status}`);
+  }
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+      try {
+        const data = JSON.parse(line.slice(6));
+        const token = data.choices?.[0]?.delta?.content;
+        if (token) yield token;
+      } catch { /* skip */ }
+    }
+  }
+}
+
+async function* streamOpenRouter(messages: ChatMessage[], apiKey: string, model: string, systemPrompt?: string): AsyncGenerator<string> {
+  const response = await fetch(PROVIDERS.openrouter.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": window.location.origin, "X-Title": "Maya AI",
+    },
+    body: JSON.stringify({
+      model, stream: true,
+      messages: [{ role: "system", content: systemPrompt || buildSystemPrompt("") }, ...messages.slice(-15)],
+      temperature: 0.7, max_tokens: 2048,
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `OpenRouter error ${response.status}`);
+  }
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+      try {
+        const data = JSON.parse(line.slice(6));
+        const token = data.choices?.[0]?.delta?.content;
+        if (token) yield token;
+      } catch { /* skip */ }
+    }
+  }
+}
+
 export function useChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettingsState] = useState<ProviderSettings>(loadSettings);
@@ -320,6 +386,84 @@ export function useChat() {
     setSettingsState(newSettings);
     saveSettings(newSettings);
   }, []);
+
+  // ===== STREAMING MESSAGE =====
+  const streamMessage = useCallback(
+    async function* (history: ChatMessage[]): AsyncGenerator<string> {
+      // Check automation first
+      const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+      if (lastUserMsg && isAutomationCommand(lastUserMsg.content)) {
+        const result = executeAutomation(lastUserMsg.content);
+        if (result) {
+          const text = formatActionResult(result);
+          yield text;
+          return;
+        }
+      }
+
+      const { model, keys } = settings;
+      const ctx = await buildContext();
+      const userText = lastUserMsg?.content || "";
+      const lang = detectLanguage(userText);
+      trackLanguage(lang);
+      trackMessage();
+      updateUserMood(detectMood(userText));
+
+      // Smart responses (non-streaming, instant)
+      const smartResponse = findSmartResponse(userText, ctx);
+      if (smartResponse) {
+        if (smartResponse === "@JOKE@") { yield getRandomJoke().setup + "\n\n" + getRandomJoke().punchline; return; }
+        if (smartResponse === "@QUOTE@") { const q = getDailyQuote(); yield `"${q.text}"\n— ${q.author}`; return; }
+        if (smartResponse === "@RIDDLE@") { const r = getRandomRiddle(); yield `🤔 ${r.question}\n\nBol, kya hai jawab?`; return; }
+        if (smartResponse === "@FUNFACT@") { yield `🧠 Fun Fact: ${getRandomFunFact()}`; return; }
+        if (smartResponse === "@MORNING_ROUTINE@") {
+          const routine = findMatchingRoutine("good morning");
+          if (routine) markRoutineRun(routine.id);
+          yield getSmartGreeting(ctx) + "\n\n" + getDeviceStatusResponse(ctx);
+          return;
+        }
+        if (smartResponse) { yield smartResponse; return; }
+      }
+
+      const routine = findMatchingRoutine(userText);
+      if (routine) { markRoutineRun(routine.id); yield `✅ Routine "${routine.name}" start ho gaya!`; return; }
+      if (userText.match(/\b(status|battery|battery level|network)\b/i)) { yield getDeviceStatusResponse(ctx); return; }
+
+      const langMod = getLanguageModifier(lang);
+      const systemPrompt = buildSystemPrompt(langMod);
+
+      // Try providers with streaming
+      const providerOrder: Provider[] = [settings.provider];
+      for (const p of ["groq", "openrouter", "gemini"] as Provider[]) {
+        if (p !== settings.provider && keys[p]) providerOrder.push(p);
+      }
+
+      for (const prov of providerOrder) {
+        const apiKey = keys[prov];
+        if (!apiKey) continue;
+        try {
+          const provModel = prov === settings.provider ? model : PROVIDERS[prov].defaultModel;
+          if (prov === "groq") {
+            yield* streamGroq(history, apiKey, provModel, systemPrompt);
+            return;
+          } else if (prov === "openrouter") {
+            yield* streamOpenRouter(history, apiKey, provModel, systemPrompt);
+            return;
+          } else if (prov === "gemini") {
+            // Gemini doesn't support streaming in free tier, fallback to non-streaming
+            const text = await callGemini(history, apiKey, provModel, systemPrompt);
+            yield text;
+            return;
+          }
+        } catch (err: any) {
+          console.warn(`Provider ${prov} failed:`, err.message);
+          continue;
+        }
+      }
+      yield "❌ All providers failed. Check your API keys.";
+    },
+    [settings]
+  );
 
   const sendMessage = useCallback(
     async (history: ChatMessage[]): Promise<string> => {
@@ -446,5 +590,26 @@ export function useChat() {
     [settings]
   );
 
-  return { sendMessage, isLoading, settings, updateSettings };
+  // ===== STREAM WITH CALLBACK =====
+  const streamWithCallback = useCallback(
+    async (
+      history: ChatMessage[],
+      onChunk: (text: string) => void
+    ): Promise<string> => {
+      setIsLoading(true);
+      try {
+        let fullText = "";
+        for await (const token of streamMessage(history)) {
+          fullText += token;
+          onChunk(fullText);
+        }
+        return fullText;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [streamMessage]
+  );
+
+  return { sendMessage, streamWithCallback, isLoading, settings, updateSettings };
 }

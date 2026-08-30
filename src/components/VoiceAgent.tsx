@@ -117,7 +117,7 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
   >([]);
   const [showSettings, setShowSettings] = useState(false);
 
-  const { sendMessage, settings } = useChat();
+  const { streamWithCallback, settings } = useChat();
   const hasApiKey = !!settings.keys[settings.provider];
   const voice = useVoice();
   const activeRef = useRef(false);
@@ -163,6 +163,7 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
           return;
         }
 
+        // Check automation first (instant, no API needed)
         if (isAutomationCommand(text)) {
           const result = executeAutomation(text);
           if (result) {
@@ -180,37 +181,56 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
           }
         }
 
-        const response = await sendMessage([
-          ...history,
-          { role: "user", content: text },
-        ]);
+        // STREAMING: Show tokens as they arrive, then speak full response
+        let streamingMsgIndex = -1;
+        const response = await streamWithCallback(
+          [...history, { role: "user", content: text }],
+          (partialText: string) => {
+            // Update conversation with streaming text
+            setConversation((prev) => {
+              const msgs = [...prev];
+              // Check if we already have a streaming message
+              if (streamingMsgIndex >= 0 && msgs[streamingMsgIndex]?.role === "maya") {
+                msgs[streamingMsgIndex] = { role: "maya", text: partialText, time: Date.now() };
+              } else {
+                streamingMsgIndex = msgs.length;
+                msgs.push({ role: "maya", text: partialText, time: Date.now() });
+              }
+              return msgs;
+            });
+          }
+        );
 
-        setConversation((prev) => [
-          ...prev,
-          { role: "maya", text: response, time: Date.now() },
-        ]);
+        // Ensure final text is set
+        if (response) {
+          setConversation((prev) => {
+            const msgs = [...prev];
+            if (streamingMsgIndex >= 0 && msgs[streamingMsgIndex]) {
+              msgs[streamingMsgIndex] = { role: "maya", text: response, time: Date.now() };
+            }
+            return msgs;
+          });
+        }
 
-        // Speak the response if it's not an error
-        if (activeRef.current && response && !response.startsWith("❌") && !response.startsWith("⏳")) {
+        // SPEAK the response - ALL responses, including errors (user needs to hear them)
+        if (activeRef.current && response) {
           await voice.speak(response);
-          restartListeningAfterSpeech();
-        } else if (activeRef.current) {
-          // Error response - just restart listening
           restartListeningAfterSpeech();
         }
       } catch (error: any) {
         const errMsg = error?.message || "Unknown error";
         const userMsg = errMsg.includes("Invalid") || errMsg.includes("401")
-          ? "Invalid API key. Check your key in Settings."
+          ? "Invalid API key. Open Settings and check your key."
           : errMsg.includes("429") || errMsg.includes("Rate limit")
-            ? "Rate limited! Wait a moment and try again."
+            ? "Rate limited! Wait 30 seconds and try again."
             : errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError")
-              ? "Network error. Check your internet."
+              ? "No internet connection. Check your network."
               : `Error: ${errMsg}`;
         setConversation((prev) => [
           ...prev,
           { role: "maya", text: userMsg, time: Date.now() },
         ]);
+        // ALWAYS speak error messages so user knows what happened
         if (activeRef.current) {
           await voice.speak(userMsg).catch(() => {});
           restartListeningAfterSpeech();
@@ -219,7 +239,7 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
         processingRef.current = false;
       }
     },
-    [sendMessage, voice, restartListeningAfterSpeech]
+    [streamWithCallback, voice, restartListeningAfterSpeech, hasApiKey]
   );
 
   const toggleAgent = useCallback(() => {
