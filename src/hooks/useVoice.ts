@@ -260,13 +260,37 @@ export function useVoice() {
     setIsSpeaking(false);
   }, []);
 
+  // Request microphone permission (required on Android/Capacitor)
+  const requestMicPermission = useCallback(async (): Promise<boolean> => {
+    // Try browser MediaDevices API (works in both browser and Capacitor WebView)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+      return true;
+    } catch {
+      // Permission denied or not available
+      return false;
+    }
+  }, []);
+
   // ===== SPEECH-TO-TEXT =====
   const startListening = useCallback(
-    (onResult: (text: string) => void, continuous = false) => {
+    async (onResult: (text: string) => void, continuous = false) => {
       if (recognitionRef.current) recognitionRef.current.abort();
 
+      // Request mic permission first (critical for Android/Capacitor)
+      const hasPermission = await requestMicPermission();
+      if (!hasPermission) {
+        console.warn('Microphone permission denied');
+        setIsListening(false);
+        return;
+      }
+
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) return;
+      if (!SpeechRecognition) {
+        console.warn('SpeechRecognition API not available');
+        return;
+      }
 
       const recognition = new SpeechRecognition();
       recognition.continuous = continuous;
@@ -290,7 +314,10 @@ export function useVoice() {
       };
 
       recognition.onerror = (event: any) => {
-        if (event.error !== "aborted") setIsListening(false);
+        if (event.error !== "aborted") {
+          console.error('Speech recognition error:', event.error);
+          setIsListening(false);
+        }
       };
 
       recognition.onend = () => {
@@ -304,9 +331,9 @@ export function useVoice() {
       };
 
       recognitionRef.current = recognition;
-      try { recognition.start(); } catch { /* ignore */ }
+      try { recognition.start(); } catch (err) { console.error('Failed to start recognition:', err); }
     },
-    [settings.language]
+    [settings.language, requestMicPermission]
   );
 
   const stopListening = useCallback(() => {
