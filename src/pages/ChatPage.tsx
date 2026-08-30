@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import VoiceAgent from "../components/VoiceAgent";
 import AutomationPanel from "../components/AutomationPanel";
+import SetupWizard from "../components/SetupWizard";
 import CommandFeedback from "../components/CommandFeedback";
 import { cn } from "../lib/utils";
 import { useChat, PROVIDERS, type Provider } from "../hooks/useChat";
@@ -67,6 +68,7 @@ export default function ChatPage() {
 
   const { sendMessage, isLoading: isTyping, settings, updateSettings } = useChat();
   const hasApiKey = !!settings.keys[settings.provider];
+  const [showSetup, setShowSetup] = useState(!hasApiKey);
   const { speak } = useVoice();
 
   useEffect(() => {
@@ -461,6 +463,13 @@ export default function ChatPage() {
       <AutomationPanel
         isOpen={showAutomation}
         onClose={() => setShowAutomation(false)}
+      />
+
+      {/* Setup Wizard */}
+      <SetupWizard
+        isOpen={showSetup}
+        onComplete={() => setShowSetup(false)}
+        onSave={updateSettings}
       />
     </div>
   );

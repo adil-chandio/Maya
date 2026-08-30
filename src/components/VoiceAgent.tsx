@@ -8,11 +8,10 @@ import {
   PhoneOff,
   Settings,
   X,
-  Key,
   Eye,
   EyeOff,
-  Check,
   Zap,
+  Loader2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useChat } from "../hooks/useChat";
@@ -20,7 +19,6 @@ import { isAutomationCommand, executeAutomation, formatActionResult } from "../l
 import { showCommandFeedback } from "./CommandFeedback";
 import {
   useVoice,
-  ELEVENLABS_VOICES,
   getBrowserVoices,
   type VoiceSettings,
 } from "../hooks/useVoice";
@@ -28,6 +26,88 @@ import {
 interface VoiceAgentProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+// ===== PARTICLE SYSTEM =====
+function Particles({ active, color }: { active: boolean; color: string }) {
+  if (!active) return null;
+  const particles = Array.from({ length: 12 }, (_, i) => ({
+    id: i,
+    angle: (i / 12) * 360,
+    delay: i * 0.1,
+    size: 2 + Math.random() * 3,
+  }));
+
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {particles.map((p) => (
+        <motion.div
+          key={p.id}
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{
+            opacity: [0, 0.8, 0],
+            scale: [0, 1, 0],
+            x: [0, Math.cos((p.angle * Math.PI) / 180) * (80 + Math.random() * 40)],
+            y: [0, Math.sin((p.angle * Math.PI) / 180) * (80 + Math.random() * 40)],
+          }}
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            delay: p.delay,
+            ease: "easeOut",
+          }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ width: p.size, height: p.size, backgroundColor: color }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ===== AUDIO WAVEFORM =====
+function AudioWaveform({ isListening, isSpeaking }: { isListening: boolean; isSpeaking: boolean }) {
+  const bars = 24;
+  const active = isListening || isSpeaking;
+
+  return (
+    <div className="flex items-end justify-center gap-[2px] h-12 px-4">
+      {Array.from({ length: bars }, (_, i) => (
+        <motion.div
+          key={i}
+          animate={
+            active
+              ? {
+                  height: [
+                    4 + Math.random() * 8,
+                    16 + Math.random() * 32,
+                    4 + Math.random() * 8,
+                  ],
+                }
+              : { height: 4 }
+          }
+          transition={
+            active
+              ? {
+                  duration: 0.3 + Math.random() * 0.4,
+                  repeat: Infinity,
+                  repeatType: "reverse",
+                  delay: i * 0.03,
+                }
+              : { duration: 0.5 }
+          }
+          className={cn(
+            "w-1 rounded-full transition-colors duration-300",
+            isSpeaking
+              ? "bg-maya-cyan"
+              : isListening
+                ? "bg-maya-purple"
+                : "bg-maya-border"
+          )}
+          style={{ minWidth: 3 }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
@@ -44,10 +124,8 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
 
-  // Restart listening after Maya finishes speaking
   const restartListeningAfterSpeech = useCallback(() => {
     if (!activeRef.current || processingRef.current) return;
-    // Small delay to avoid picking up TTS tail
     setTimeout(() => {
       if (activeRef.current && !processingRef.current) {
         voice.startListening(handleVoiceMessage, false);
@@ -55,32 +133,23 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
     }, 800);
   }, [voice]);
 
-  // Handle voice input → AI response → speak
   const handleVoiceMessage = useCallback(
     async (text: string) => {
       if (processingRef.current || !text.trim()) return;
       processingRef.current = true;
-
-      // IMMEDIATELY stop listening to avoid echo loop
       voice.stopListening();
 
-      // Add user message
       setConversation((prev) => [
         ...prev,
         { role: "user", text, time: Date.now() },
       ]);
 
-      // Build chat history from ref
       const history = conversationRef.current.map((m) => ({
-        role: (m.role === "maya" ? "assistant" : "user") as
-          | "user"
-          | "assistant"
-          | "system",
+        role: (m.role === "maya" ? "assistant" : "user") as "user" | "assistant" | "system",
         content: m.text,
       }));
 
       try {
-        // Check for automation command first
         if (isAutomationCommand(text)) {
           const result = executeAutomation(text);
           if (result) {
@@ -103,28 +172,20 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
           { role: "user", content: text },
         ]);
 
-        // Add Maya response
         setConversation((prev) => [
           ...prev,
           { role: "maya", text: response, time: Date.now() },
         ]);
 
-        // Speak the response (mic is already stopped)
         if (activeRef.current) {
           await voice.speak(response);
-          // After speaking finishes, restart listening
           restartListeningAfterSpeech();
         }
       } catch {
         setConversation((prev) => [
           ...prev,
-          {
-            role: "maya",
-            text: "Sorry, I encountered an error. Please try again.",
-            time: Date.now(),
-          },
+          { role: "maya", text: "Sorry, error occurred. Try again.", time: Date.now() },
         ]);
-        // Restart listening even on error
         restartListeningAfterSpeech();
       } finally {
         processingRef.current = false;
@@ -133,7 +194,6 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
     [sendMessage, voice, restartListeningAfterSpeech]
   );
 
-  // Start/stop voice agent
   const toggleAgent = useCallback(() => {
     if (activeRef.current) {
       activeRef.current = false;
@@ -145,7 +205,6 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       setIsActive(true);
       setConversation([]);
 
-      // Voice greeting - Maya speaks first, then listens
       const greetings = [
         "Hey! Maya here. What can I do for you?",
         "Hi there! I'm listening.",
@@ -155,7 +214,6 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       const greeting = greetings[Math.floor(Math.random() * greetings.length)];
       setConversation([{ role: "maya", text: greeting, time: Date.now() }]);
 
-      // Speak greeting then start listening
       voice.speak(greeting).then(() => {
         setTimeout(() => {
           if (activeRef.current) {
@@ -166,7 +224,6 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
     }
   }, [voice, handleVoiceMessage]);
 
-  // Cleanup on close
   useEffect(() => {
     if (!isOpen) {
       activeRef.current = false;
@@ -178,6 +235,22 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
 
   if (!isOpen) return null;
 
+  const orbColor = voice.isSpeaking
+    ? "from-maya-cyan/40 to-maya-cyan/10"
+    : voice.isListening
+      ? "from-maya-purple/30 to-maya-cyan/10"
+      : isActive
+        ? "from-maya-card to-maya-darker"
+        : "from-maya-card to-maya-darker";
+
+  const borderColor = voice.isSpeaking
+    ? "border-maya-cyan/60"
+    : voice.isListening
+      ? "border-maya-purple/50"
+      : isActive
+        ? "border-maya-border hover:border-maya-cyan/30"
+        : "border-maya-border";
+
   return (
     <>
       <AnimatePresence>
@@ -187,46 +260,64 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[60] bg-maya-dark flex flex-col"
         >
-          {/* Background effects */}
+          {/* Ambient Background */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div
-              className={cn(
-                "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl transition-all duration-1000",
-                voice.isSpeaking
-                  ? "bg-maya-cyan/10"
-                  : voice.isListening
-                    ? "bg-maya-purple/10"
-                    : "bg-maya-cyan/5"
-              )}
-            />
-            <div
-              className="absolute inset-0 opacity-[0.02]"
+            <motion.div
+              animate={{
+                opacity: voice.isSpeaking ? 0.15 : voice.isListening ? 0.08 : 0.03,
+                scale: voice.isSpeaking ? 1.2 : 1,
+              }}
+              transition={{ duration: 1 }}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full blur-3xl"
               style={{
-                backgroundImage: `radial-gradient(circle, rgba(0,212,255,0.5) 1px, transparent 1px)`,
-                backgroundSize: "30px 30px",
+                background: voice.isSpeaking
+                  ? "radial-gradient(circle, rgba(0,212,255,0.4) 0%, transparent 70%)"
+                  : voice.isListening
+                    ? "radial-gradient(circle, rgba(139,92,246,0.3) 0%, transparent 70%)"
+                    : "radial-gradient(circle, rgba(0,212,255,0.1) 0%, transparent 70%)",
               }}
             />
+            <div
+              className="absolute inset-0 opacity-[0.015]"
+              style={{
+                backgroundImage: `radial-gradient(circle, rgba(0,212,255,0.5) 1px, transparent 1px)`,
+                backgroundSize: "24px 24px",
+              }}
+            />
+            {/* Scan line effect */}
+            {isActive && (
+              <motion.div
+                animate={{ y: ["-100%", "100vh"] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-maya-cyan/20 to-transparent"
+              />
+            )}
           </div>
 
           {/* Header */}
-          <div className="relative z-10 flex items-center justify-between px-6 py-4">
-            <div className="flex items-center gap-3">
-              <div
-                className={cn(
-                  "w-3 h-3 rounded-full transition-colors",
-                  isActive ? "bg-maya-green animate-pulse" : "bg-maya-text-dim"
+          <div className="relative z-10 flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <div
+                  className={cn(
+                    "w-2.5 h-2.5 rounded-full transition-colors",
+                    isActive ? "bg-maya-green" : "bg-maya-text-dim"
+                  )}
+                />
+                {isActive && (
+                  <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-maya-green animate-ping opacity-50" />
                 )}
-              />
-              <span className="text-sm font-medium text-white">
-                {isActive ? "Maya Voice Active" : "Voice Agent"}
+              </div>
+              <span className="text-xs font-medium text-white/80 uppercase tracking-wider">
+                {isActive ? "Maya Active" : "Voice Agent"}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => setShowSettings(true)}
-                className="p-2 rounded-lg hover:bg-maya-card transition-colors"
+                className="p-2 rounded-lg hover:bg-white/5 transition-colors"
               >
-                <Settings className="w-5 h-5 text-maya-text-dim" />
+                <Settings className="w-4 h-4 text-white/40" />
               </button>
               <button
                 onClick={() => {
@@ -236,75 +327,74 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
                   voice.stopSpeaking();
                   onClose();
                 }}
-                className="p-2 rounded-lg hover:bg-maya-card transition-colors"
+                className="p-2 rounded-lg hover:bg-white/5 transition-colors"
               >
-                <X className="w-5 h-5 text-maya-text-dim" />
+                <X className="w-4 h-4 text-white/40" />
               </button>
             </div>
           </div>
 
-          {/* Main visualizer */}
+          {/* Main Content */}
           <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
-            {/* Orbital rings */}
-            <div className="relative mb-12">
+            {/* Orbital System */}
+            <div className="relative mb-8">
+              {/* Outer rings */}
               {isActive && (
                 <>
                   <motion.div
                     animate={{
-                      scale: voice.isSpeaking
-                        ? [1, 1.3, 1]
-                        : voice.isListening
-                          ? [1, 1.15, 1]
-                          : [1, 1.02, 1],
-                      opacity: voice.isSpeaking
-                        ? [0.3, 0.1, 0.3]
-                        : voice.isListening
-                          ? [0.2, 0.05, 0.2]
-                          : 0.05,
+                      rotate: 360,
+                      scale: voice.isSpeaking ? [1, 1.1, 1] : 1,
                     }}
                     transition={{
-                      duration: voice.isSpeaking ? 0.8 : 2,
-                      repeat: Infinity,
-                      ease: "easeInOut",
+                      rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+                      scale: { duration: 1, repeat: Infinity },
                     }}
-                    className="absolute inset-[-40px] rounded-full border border-maya-cyan/30"
+                    className="absolute inset-[-60px] rounded-full"
+                    style={{
+                      border: "1px solid rgba(0,212,255,0.1)",
+                      borderStyle: "dashed",
+                    }}
                   />
                   <motion.div
                     animate={{
-                      scale: voice.isSpeaking
-                        ? [1, 1.5, 1]
-                        : voice.isListening
-                          ? [1, 1.25, 1]
-                          : 1,
-                      opacity: voice.isSpeaking
-                        ? [0.2, 0.05, 0.2]
-                        : voice.isListening
-                          ? [0.15, 0.03, 0.15]
-                          : 0.03,
+                      rotate: -360,
+                      scale: voice.isSpeaking ? [1, 1.15, 1] : 1,
                     }}
                     transition={{
-                      duration: voice.isSpeaking ? 1 : 2.5,
-                      repeat: Infinity,
-                      ease: "easeInOut",
+                      rotate: { duration: 30, repeat: Infinity, ease: "linear" },
+                      scale: { duration: 1.5, repeat: Infinity },
                     }}
-                    className="absolute inset-[-80px] rounded-full border border-maya-purple/20"
+                    className="absolute inset-[-100px] rounded-full"
+                    style={{
+                      border: "1px solid rgba(139,92,246,0.08)",
+                    }}
                   />
+                  {/* Orbiting dots */}
                   <motion.div
-                    animate={{
-                      scale: voice.isSpeaking ? [1, 1.7, 1] : 1,
-                      opacity: voice.isSpeaking ? [0.15, 0.02, 0.15] : 0,
-                    }}
-                    transition={{
-                      duration: 1.2,
-                      repeat: Infinity,
-                      ease: "easeInOut",
-                    }}
-                    className="absolute inset-[-120px] rounded-full border border-maya-cyan/10"
-                  />
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-[-60px]"
+                  >
+                    <div className="absolute top-0 left-1/2 w-1.5 h-1.5 -ml-0.75 -mt-0.75 rounded-full bg-maya-cyan/60" />
+                  </motion.div>
+                  <motion.div
+                    animate={{ rotate: -360 }}
+                    transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-[-100px]"
+                  >
+                    <div className="absolute bottom-0 right-4 w-1 h-1 rounded-full bg-maya-purple/40" />
+                  </motion.div>
                 </>
               )}
 
-              {/* Center orb */}
+              {/* Particles */}
+              <Particles
+                active={voice.isSpeaking || voice.isListening}
+                color={voice.isSpeaking ? "#00d4ff" : "#8b5cf6"}
+              />
+
+              {/* Center Orb */}
               <motion.div
                 animate={{
                   scale: voice.isSpeaking
@@ -322,161 +412,149 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
                 }}
                 onClick={isActive ? toggleAgent : undefined}
                 className={cn(
-                  "w-36 h-36 rounded-full flex items-center justify-center transition-all duration-500 cursor-pointer",
-                  voice.isSpeaking
-                    ? "bg-gradient-to-br from-maya-cyan/30 to-maya-purple/30 border-2 border-maya-cyan/50 shadow-lg shadow-maya-cyan/20"
-                    : voice.isListening
-                      ? "bg-gradient-to-br from-maya-purple/20 to-maya-cyan/20 border-2 border-maya-purple/40"
-                      : isActive
-                        ? "bg-maya-card border-2 border-maya-border hover:border-maya-cyan/30"
-                        : "bg-maya-card border-2 border-maya-border"
+                  "relative w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center cursor-pointer transition-all duration-500",
+                  `bg-gradient-to-br ${orbColor}`,
+                  `border-2 ${borderColor}`,
+                  voice.isSpeaking && "shadow-[0_0_40px_rgba(0,212,255,0.3)]",
+                  voice.isListening && "shadow-[0_0_30px_rgba(139,92,246,0.2)]"
                 )}
               >
+                {/* Inner glow */}
+                <div className="absolute inset-2 rounded-full bg-gradient-to-br from-white/[0.03] to-transparent" />
+
                 {voice.isSpeaking ? (
-                  <Volume2 className="w-12 h-12 text-maya-cyan" />
+                  <Volume2 className="w-10 h-10 md:w-12 md:h-12 text-maya-cyan" />
                 ) : voice.isListening ? (
-                  <Mic className="w-12 h-12 text-maya-purple" />
+                  <Mic className="w-10 h-10 md:w-12 md:h-12 text-maya-purple" />
                 ) : isActive ? (
-                  <Zap className="w-12 h-12 text-maya-green" />
+                  <Zap className="w-10 h-10 md:w-12 md:h-12 text-maya-green" />
                 ) : (
-                  <Phone className="w-12 h-12 text-maya-text-dim" />
+                  <Phone className="w-10 h-10 md:w-12 md:h-12 text-white/30" />
                 )}
               </motion.div>
             </div>
 
-            {/* Status */}
-            <div className="text-center mb-8">
-              <motion.p
-                key={
-                  voice.isSpeaking
-                    ? "speaking"
-                    : voice.isListening
-                      ? "listening"
-                      : isActive
-                        ? "ready"
-                        : "idle"
-                }
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-2xl font-semibold text-white mb-2"
-              >
-                {voice.isSpeaking
-                  ? "🎤 Maya is speaking..."
-                  : voice.isListening
-                    ? "👂 Listening..."
-                    : isActive
-                      ? "✅ Ready to listen"
-                      : "🎙️ Voice Agent"
-                }
-              </motion.p>
+            {/* Audio Waveform */}
+            <div className="w-full max-w-xs mb-6">
+              <AudioWaveform isListening={voice.isListening} isSpeaking={voice.isSpeaking} />
+            </div>
 
-              {/* Interim transcript */}
-              <AnimatePresence>
-                {voice.interimTranscript && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-maya-cyan text-lg italic max-w-md mx-auto"
-                  >
-                    "{voice.interimTranscript}"
-                  </motion.p>
-                )}
+            {/* Status */}
+            <div className="text-center mb-6">
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={
+                    voice.isSpeaking
+                      ? "speaking"
+                      : voice.isListening
+                        ? "listening"
+                        : isActive
+                          ? "ready"
+                          : "idle"
+                  }
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="text-lg md:text-xl font-semibold text-white mb-1"
+                >
+                  {voice.isSpeaking
+                    ? "Speaking..."
+                    : voice.isListening
+                      ? "Listening..."
+                      : isActive
+                        ? "Ready"
+                        : "Tap to Start"}
+                </motion.p>
               </AnimatePresence>
 
-              {isActive && !voice.isListening && !voice.isSpeaking && !processingRef.current && (
-                <p className="text-maya-text-dim text-sm mt-2">
-                  Tap the orb or press mic to start talking
-                </p>
+              {voice.interimTranscript && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-maya-cyan/80 text-sm italic max-w-xs mx-auto"
+                >
+                  "{voice.interimTranscript}"
+                </motion.p>
               )}
+
               {processingRef.current && (
-                <p className="text-maya-cyan text-sm mt-2 animate-pulse">
-                  🧠 Thinking...
-                </p>
+                <div className="flex items-center justify-center gap-2 text-maya-cyan/70 text-sm mt-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Thinking...
+                </div>
               )}
             </div>
 
-            {/* Transcript */}
+            {/* Conversation */}
             {conversation.length > 0 && (
-              <div className="w-full max-w-lg max-h-48 overflow-y-auto space-y-2 px-4">
-                {conversation.slice(-4).map((msg, i) => (
+              <div className="w-full max-w-md max-h-36 overflow-y-auto space-y-1.5 px-2">
+                {conversation.slice(-3).map((msg, i) => (
                   <motion.div
                     key={i}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={cn(
-                      "text-sm px-3 py-2 rounded-lg",
+                      "text-xs px-3 py-1.5 rounded-lg",
                       msg.role === "user"
-                        ? "bg-maya-purple/10 text-maya-text ml-8 text-right"
-                        : "bg-maya-card border border-maya-border text-maya-text mr-8"
+                        ? "bg-white/5 text-white/60 ml-8 text-right"
+                        : "bg-maya-card/50 border border-maya-border/50 text-white/70 mr-8"
                     )}
                   >
-                    {msg.text.slice(0, 150)}
-                    {msg.text.length > 150 ? "..." : ""}
+                    {msg.text.slice(0, 120)}
+                    {msg.text.length > 120 ? "..." : ""}
                   </motion.div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Controls */}
-          <div className="relative z-10 flex items-center justify-center gap-6 px-6 pb-8 pt-4">
+          {/* Bottom Controls */}
+          <div className="relative z-10 flex items-center justify-center gap-4 px-6 pb-8 pt-4">
             <button
               onClick={voice.stopSpeaking}
               disabled={!voice.isSpeaking}
               className={cn(
-                "p-4 rounded-full transition-all",
+                "p-3 rounded-full transition-all",
                 voice.isSpeaking
-                  ? "bg-maya-card border border-maya-border text-white hover:bg-maya-border"
-                  : "bg-maya-card/50 text-maya-text-dim/50 cursor-not-allowed"
+                  ? "bg-white/10 text-white hover:bg-white/15"
+                  : "text-white/20 cursor-not-allowed"
               )}
             >
-              <VolumeX className="w-6 h-6" />
+              <VolumeX className="w-5 h-5" />
             </button>
 
             <button
               onClick={toggleAgent}
               className={cn(
-                "p-6 rounded-full transition-all shadow-lg",
+                "p-5 rounded-full transition-all shadow-lg",
                 isActive
-                  ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/25"
-                  : "bg-gradient-to-br from-maya-cyan to-maya-purple text-white shadow-maya-cyan/25 hover:scale-105"
+                  ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/30"
+                  : "bg-gradient-to-br from-maya-cyan to-maya-purple text-white shadow-maya-cyan/30 hover:scale-105"
               )}
             >
-              {isActive ? (
-                <PhoneOff className="w-8 h-8" />
-              ) : (
-                <Phone className="w-8 h-8" />
-              )}
+              {isActive ? <PhoneOff className="w-7 h-7" /> : <Phone className="w-7 h-7" />}
             </button>
 
-            {/* Manual mic button - only when idle and not processing */}
             <button
               onClick={() => {
-                if (
-                  isActive &&
-                  !voice.isListening &&
-                  !voice.isSpeaking &&
-                  !processingRef.current
-                ) {
+                if (isActive && !voice.isListening && !voice.isSpeaking && !processingRef.current) {
                   voice.startListening(handleVoiceMessage, false);
                 }
               }}
               disabled={!isActive || voice.isListening || voice.isSpeaking || processingRef.current}
               className={cn(
-                "p-4 rounded-full transition-all",
+                "p-3 rounded-full transition-all",
                 isActive && !voice.isListening && !voice.isSpeaking && !processingRef.current
-                  ? "bg-maya-card border border-maya-border text-white hover:bg-maya-border"
-                  : "bg-maya-card/50 text-maya-text-dim/50 cursor-not-allowed"
+                  ? "bg-white/10 text-white hover:bg-white/15"
+                  : "text-white/20 cursor-not-allowed"
               )}
             >
-              <Mic className="w-6 h-6" />
+              <Mic className="w-5 h-5" />
             </button>
           </div>
         </motion.div>
       </AnimatePresence>
 
-      {/* Voice Settings */}
       <VoiceSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
@@ -542,17 +620,15 @@ function VoiceSettingsModal({
 
   const previewVoice = () => {
     window.speechSynthesis.cancel();
-    const text = "Hello! I'm Maya, your personal AI assistant. I have a cute voice! How can I help you today?";
+    const text = "Hello! I'm Maya, your personal AI assistant. How can I help you today?";
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = rate;
     utterance.pitch = pitch;
     utterance.lang = "en-US";
-
     if (selectedBrowserVoice) {
       const found = browserVoices.find((v) => v.name === selectedBrowserVoice);
       if (found) utterance.voice = found;
     }
-
     utterance.onstart = () => setTestVoice("speaking");
     utterance.onend = () => setTestVoice("");
     window.speechSynthesis?.speak(utterance);
@@ -565,134 +641,88 @@ function VoiceSettingsModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/60"
+      className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/70"
       onClick={onClose}
     >
       <motion.div
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-md bg-maya-darker border border-maya-border rounded-t-2xl md:rounded-2xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto"
+        className="w-full md:max-w-md bg-maya-darker border border-maya-border rounded-t-2xl md:rounded-2xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto"
       >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-white">🎙️ Voice Settings</h2>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-maya-card">
-            <X className="w-5 h-5 text-maya-text-dim" />
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-white">Voice Settings</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5">
+            <X className="w-4 h-4 text-white/40" />
           </button>
         </div>
 
-        {/* TTS Provider */}
-        <div className="mb-5">
-          <label className="text-sm font-medium text-white mb-2 block">
-            Voice Engine
-          </label>
+        <div className="mb-4">
+          <label className="text-xs text-white/40 mb-1.5 block">Voice Engine</label>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setTtsProvider("browser")}
               className={cn(
-                "p-3 rounded-xl border text-left transition-all",
+                "p-2.5 rounded-lg border text-left transition-all text-xs",
                 ttsProvider === "browser"
-                  ? "bg-maya-cyan/10 border-maya-cyan/50"
-                  : "bg-maya-card border-maya-border"
+                  ? "bg-maya-cyan/10 border-maya-cyan/40 text-white"
+                  : "bg-white/3 border-white/10 text-white/60"
               )}
             >
-              <p className="text-sm font-medium text-white">🌐 Browser</p>
-              <p className="text-xs text-maya-text-dim">Free • Unlimited</p>
+              <p className="font-medium">Browser</p>
+              <p className="text-white/30 text-[10px]">Free • Unlimited</p>
             </button>
             <button
               onClick={() => setTtsProvider("elevenlabs")}
               className={cn(
-                "p-3 rounded-xl border text-left transition-all",
+                "p-2.5 rounded-lg border text-left transition-all text-xs",
                 ttsProvider === "elevenlabs"
-                  ? "bg-maya-cyan/10 border-maya-cyan/50"
-                  : "bg-maya-card border-maya-border"
+                  ? "bg-maya-cyan/10 border-maya-cyan/40 text-white"
+                  : "bg-white/3 border-white/10 text-white/60"
               )}
             >
-              <p className="text-sm font-medium text-white">🎭 ElevenLabs</p>
-              <p className="text-xs text-maya-text-dim">Realistic • 10K/mo</p>
+              <p className="font-medium">ElevenLabs</p>
+              <p className="text-white/30 text-[10px]">Realistic • 10K/mo</p>
             </button>
           </div>
         </div>
 
-        {/* ElevenLabs settings */}
         {ttsProvider === "elevenlabs" && (
-          <div className="mb-5 space-y-3">
-            <div>
-              <a
-                href="https://elevenlabs.io/app/settings/api-keys"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 px-3 py-1.5 mb-2 rounded-lg bg-maya-cyan/10 border border-maya-cyan/20 text-maya-cyan text-xs font-medium hover:bg-maya-cyan/20"
-              >
-                <Key className="w-3 h-3" /> Get Free Key →
-              </a>
-              <div className="relative">
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={elevenKey}
-                  onChange={(e) => setElevenKey(e.target.value)}
-                  placeholder="ElevenLabs API key"
-                  className="w-full px-3 py-2.5 pr-10 rounded-lg bg-maya-card border border-maya-border text-maya-text text-sm font-mono outline-none focus:border-maya-cyan/50"
-                />
-                <button
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1"
-                >
-                  {showKey ? (
-                    <EyeOff className="w-4 h-4 text-maya-text-dim" />
-                  ) : (
-                    <Eye className="w-4 h-4 text-maya-text-dim" />
-                  )}
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-maya-text-dim mb-1 block">Voice</label>
-              <select
-                value={voiceId}
-                onChange={(e) => setVoiceId(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg bg-maya-card border border-maya-border text-maya-text text-sm appearance-none outline-none"
-              >
-                {ELEVENLABS_VOICES.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
+          <div className="mb-4 space-y-2">
+            <div className="relative">
+              <input
+                type={showKey ? "text" : "password"}
+                value={elevenKey}
+                onChange={(e) => setElevenKey(e.target.value)}
+                placeholder="ElevenLabs API key"
+                className="w-full px-3 py-2 pr-9 rounded-lg bg-white/5 border border-white/10 text-white text-xs font-mono outline-none focus:border-maya-cyan/40"
+              />
+              <button onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5">
+                {showKey ? <EyeOff className="w-3.5 h-3.5 text-white/30" /> : <Eye className="w-3.5 h-3.5 text-white/30" />}
+              </button>
             </div>
           </div>
         )}
 
-        {/* Browser voice settings */}
         {ttsProvider === "browser" && (
-          <div className="mb-5 space-y-3">
+          <div className="mb-4 space-y-3">
             <div>
-              <label className="text-xs text-maya-text-dim mb-1 block">
+              <label className="text-[11px] text-white/40 mb-1 block">
                 Voice ({browserVoices.length} available)
               </label>
               <select
                 value={selectedBrowserVoice}
                 onChange={(e) => setSelectedBrowserVoice(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg bg-maya-card border border-maya-border text-maya-text text-sm appearance-none outline-none focus:border-maya-cyan/50"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs appearance-none outline-none"
               >
-                <option value="">🤖 Auto (Best Available)</option>
+                <option value="">Auto (Best)</option>
                 {browserVoices.map((v) => (
-                  <option key={v.name} value={v.name}>
-                    {v.name} {v.localService ? "(Local)" : "(Network)"}
-                  </option>
+                  <option key={v.name} value={v.name}>{v.name}</option>
                 ))}
               </select>
-              {browserVoices.length === 0 && (
-                <p className="text-[11px] text-maya-amber mt-1">
-                  Voices load ho rahe hain... Try again in a moment
-                </p>
-              )}
             </div>
-
             <div>
-              <label className="text-xs text-maya-text-dim mb-1 block">
-                Speed: {rate.toFixed(1)}x
-              </label>
+              <label className="text-[11px] text-white/40 mb-1 block">Speed: {rate.toFixed(1)}x</label>
               <input
                 type="range"
                 min="0.5"
@@ -704,9 +734,7 @@ function VoiceSettingsModal({
               />
             </div>
             <div>
-              <label className="text-xs text-maya-text-dim mb-1 block">
-                Pitch: {pitch.toFixed(1)} (higher = cuter 🎀)
-              </label>
+              <label className="text-[11px] text-white/40 mb-1 block">Pitch: {pitch.toFixed(1)}</label>
               <input
                 type="range"
                 min="0.5"
@@ -721,36 +749,22 @@ function VoiceSettingsModal({
               onClick={previewVoice}
               disabled={testVoice === "speaking"}
               className={cn(
-                "w-full py-2.5 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2",
+                "w-full py-2 rounded-lg border text-xs font-medium transition-all",
                 testVoice === "speaking"
-                  ? "bg-maya-cyan/20 border-maya-cyan/40 text-maya-cyan"
-                  : "bg-maya-card border-maya-border text-maya-text hover:bg-maya-border"
+                  ? "bg-maya-cyan/10 border-maya-cyan/30 text-maya-cyan"
+                  : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
               )}
             >
-              {testVoice === "speaking" ? (
-                <>
-                  <Volume2 className="w-4 h-4 animate-pulse" /> Speaking...
-                </>
-              ) : (
-                <>
-                  <Volume2 className="w-4 h-4" /> 🔊 Preview Voice
-                </>
-              )}
+              {testVoice === "speaking" ? "Speaking..." : "🔊 Preview Voice"}
             </button>
           </div>
         )}
 
         <button
           onClick={handleSave}
-          className="w-full py-3 rounded-xl bg-maya-cyan text-white font-medium hover:bg-maya-cyan-dim transition-all flex items-center justify-center gap-2"
+          className="w-full py-2.5 rounded-lg bg-maya-cyan text-white text-sm font-medium hover:bg-maya-cyan-dim transition-all"
         >
-          {saved ? (
-            <>
-              <Check className="w-4 h-4" /> Saved!
-            </>
-          ) : (
-            "Save Settings"
-          )}
+          {saved ? "✓ Saved!" : "Save"}
         </button>
       </motion.div>
     </motion.div>
