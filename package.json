@@ -14,12 +14,12 @@
     "apk:release": "npm run build && npx cap sync android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.0",
-    "@capacitor/browser": "^8.0.4",
-    "@capacitor/cli": "^8.5.0",
-    "@capacitor/core": "^8.5.0",
-    "@capacitor/haptics": "^8.0.2",
-    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/android": "6",
+    "@capacitor/browser": "6",
+    "@capacitor/cli": "6",
+    "@capacitor/core": "6",
+    "@capacitor/haptics": "6",
+    "@capacitor/local-notifications": "6",
     "@tailwindcss/vite": "^4.3.3",
     "autoprefixer": "^10.5.4",
     "class-variance-authority": "^0.7.1",
