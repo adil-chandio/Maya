@@ -34,19 +34,27 @@ jobs:
     - name: Sync Capacitor
       run: bunx cap sync android
 
+    - name: Verify web assets in Android
+      run: ls -la android/app/src/main/assets/public/
+
     - name: Make gradlew executable
       run: chmod +x android/gradlew
 
-    - name: Build APK
-      run: cd android && ./gradlew assembleDebug --no-daemon
+    - name: Build APK (with verbose output)
+      run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace 2>&1
 
-    - name: Find APK file
-      run: find android -name "*.apk" -type f
+    - name: Check build outputs
+      run: find android/app/build -name "*.apk" -type f 2>/dev/null || echo "No APK found in build outputs"
+
+    - name: List build directory structure
+      run: find android/app/build -type f -name "*.apk" 2>/dev/null; ls -la android/app/build/outputs/ 2>/dev/null || echo "No outputs directory"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
-      if: success()
       with:
         name: MAYA-APK
-        path: android/**/*.apk
+        path: |
+          android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/**/*.apk
+        if-no-files-found: warn
         retention-days: 30
