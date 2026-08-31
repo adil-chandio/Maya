@@ -5,6 +5,17 @@ import type { AutomationResult } from "./types";
 import { parseIntent } from "./intent-parser";
 import { executeWebCommand } from "./web-bridge";
 import { executePhoneCommand } from "./phone-bridge";
+import { executeNativeAction } from "./native-actions";
+
+// Native-only actions (device control / UI automation)
+const NATIVE_ACTIONS = new Set([
+  "set_torch",
+  "toggle_wifi",
+  "toggle_bluetooth",
+  "device_status",
+  "take_screenshot",
+  "ui_action",
+]);
 
 // Web-based actions that go through web-bridge
 const WEB_ACTIONS = new Set([
@@ -29,16 +40,18 @@ const PHONE_ACTIONS = new Set([
 
 // ===== MAIN EXECUTE FUNCTION =====
 
-export function executeAutomation(input: string): AutomationResult | null {
+export async function executeAutomation(input: string): Promise<AutomationResult | null> {
   const command = parseIntent(input);
   if (!command) return null;
 
   let result: AutomationResult;
 
-  if (WEB_ACTIONS.has(command.action)) {
-    result = executeWebCommand(command);
+  if (NATIVE_ACTIONS.has(command.action)) {
+    result = await executeNativeAction(command);
+  } else if (WEB_ACTIONS.has(command.action)) {
+    result = await executeWebCommand(command);
   } else if (PHONE_ACTIONS.has(command.action)) {
-    result = executePhoneCommand(command);
+    result = await executePhoneCommand(command);
   } else {
     result = {
       success: false,

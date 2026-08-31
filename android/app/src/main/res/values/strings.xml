@@ -4,4 +4,7 @@
     <string name="title_activity_main">Maya AI</string>
     <string name="package_name">com.maya.ai.assistant</string>
     <string name="custom_url_scheme">com.maya.ai.assistant</string>
+
+    <string name="accessibility_service_label">Maya AI Remote Control</string>
+    <string name="accessibility_service_description">Maya ko phone screen par tap, type, scroll aur screenshot lene ki permission de. Maya sirf aapke diye gaye commands par kaam karti hai — data kahin bhi share nahi hota.</string>
 </resources>

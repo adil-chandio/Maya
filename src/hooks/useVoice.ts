@@ -1,7 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  isNativePlatform,
+  nativeSpeak,
+  nativeStopSpeaking,
+  nativeOnTtsEnd,
+  nativeStartListening,
+  nativeStopListening,
+  nativeOnSpeech,
+  nativeSpeechAvailable,
+} from "../lib/native/maya-native";
 
 export interface VoiceSettings {
-  ttsProvider: "browser" | "elevenlabs";
+  ttsProvider: "native" | "browser" | "elevenlabs";
   elevenLabsApiKey: string;
   elevenLabsVoiceId: string;
   speechRate: number;
@@ -11,14 +21,19 @@ export interface VoiceSettings {
   selectedVoiceName: string; // browser voice name
 }
 
+// On the Android APK, native TTS is the best default (offline, low latency)
+function getDefaultTtsProvider(): VoiceSettings["ttsProvider"] {
+  return isNativePlatform() ? "native" : "browser";
+}
+
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
-  ttsProvider: "browser",
+  ttsProvider: getDefaultTtsProvider(),
   elevenLabsApiKey: "",
   elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
   speechRate: 1.05,
   speechPitch: 1.15,
   continuousMode: true,
-  language: "en-US",
+  language: isNativePlatform() ? "en-IN" : "en-US",
   selectedVoiceName: "", // auto-detect best
 };
 
@@ -53,7 +68,12 @@ const VOICE_PRIORITY = [
 export function loadVoiceSettings(): VoiceSettings {
   try {
     const raw = localStorage.getItem("maya_voice_settings");
-    if (raw) return { ...DEFAULT_VOICE_SETTINGS, ...JSON.parse(raw) };
+    if (raw) {
+      const merged = { ...DEFAULT_VOICE_SETTINGS, ...JSON.parse(raw) };
+      // On native, keep browser TTS only if the user explicitly saved it
+      if (!merged.ttsProvider) merged.ttsProvider = getDefaultTtsProvider();
+      return merged;
+    }
   } catch { /* ignore */ }
   return DEFAULT_VOICE_SETTINGS;
 }
@@ -202,6 +222,10 @@ export function useVoice() {
   const recognitionRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const continuousRef = useRef(false);
+  const nativeSpeechCbRef = useRef<((text: string) => void) | null>(null);
+  const nativeSpeechCleanupRef = useRef<(() => void) | null>(null);
+  const nativeTtsCleanupRef = useRef<(() => void) | null>(null);
+  const nativeListeningRef = useRef(false);
 
   const updateSettings = useCallback((newSettings: VoiceSettings) => {
     setSettingsState(newSettings);
@@ -222,6 +246,35 @@ export function useVoice() {
       setIsSpeaking(true);
 
       try {
+        // ===== NATIVE ANDROID TTS (default on APK) =====
+        if (settings.ttsProvider === "native" && isNativePlatform()) {
+          // Register end/error listeners once
+          if (!nativeTtsCleanupRef.current) {
+            nativeTtsCleanupRef.current = await nativeOnTtsEnd({
+              onEnd: () => setIsSpeaking(false),
+              onError: () => setIsSpeaking(false),
+            });
+          }
+          const res = await nativeSpeak(cleanedText, {
+            rate: settings.speechRate,
+            pitch: settings.speechPitch,
+            language: settings.language,
+          });
+          if (!res.success) {
+            console.warn("Native TTS failed, falling back to browser:", res.message);
+            const utterance = new SpeechSynthesisUtterance(cleanedText);
+            utterance.rate = settings.speechRate;
+            utterance.pitch = settings.speechPitch;
+            utterance.lang = settings.language;
+            const voice = findBestVoice(settings.selectedVoiceName);
+            if (voice) utterance.voice = voice;
+            utterance.onend = () => setIsSpeaking(false);
+            utterance.onerror = () => setIsSpeaking(false);
+            window.speechSynthesis?.speak(utterance);
+          }
+          return;
+        }
+
         if (settings.ttsProvider === "elevenlabs" && settings.elevenLabsApiKey) {
           const audioUrl = await ttsElevenLabs(cleanedText, settings.elevenLabsApiKey, settings.elevenLabsVoiceId);
           const audio = new Audio(audioUrl);
@@ -257,6 +310,7 @@ export function useVoice() {
   const stopSpeaking = useCallback(() => {
     window.speechSynthesis?.cancel();
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (isNativePlatform()) void nativeStopSpeaking();
     setIsSpeaking(false);
   }, []);
 
@@ -279,6 +333,38 @@ export function useVoice() {
   // ===== SPEECH-TO-TEXT =====
   const startListening = useCallback(
     async (onResult: (text: string) => void, continuous = false) => {
+      // ===== NATIVE ANDROID SPEECH RECOGNIZER (WebView me Web Speech API nahi hoti) =====
+      if (isNativePlatform() && await nativeSpeechAvailable()) {
+        const hasPermission = await requestMicPermission();
+        if (!hasPermission) {
+          setIsListening(false);
+          return;
+        }
+        // Register native listeners once
+        if (!nativeSpeechCleanupRef.current) {
+          nativeSpeechCleanupRef.current = await nativeOnSpeech({
+            onFinal: (text) => {
+              setTranscript(text);
+              setInterimTranscript("");
+              nativeSpeechCbRef.current?.(text);
+            },
+            onPartial: (text) => setInterimTranscript(text),
+            onError: () => setIsListening(false),
+          });
+        }
+        nativeSpeechCbRef.current = onResult;
+        const res = await nativeStartListening(settings.language, continuous);
+        if (res.success) {
+          nativeListeningRef.current = true;
+          setTranscript("");
+          setInterimTranscript("");
+          setIsListening(true);
+          return;
+        }
+        console.warn("Native speech failed, falling back to Web Speech:", res.message);
+      }
+
+      // ===== WEB SPEECH FALLBACK =====
       if (recognitionRef.current) recognitionRef.current.abort();
 
       // Request mic permission first (critical for Android/Capacitor)
@@ -341,6 +427,10 @@ export function useVoice() {
 
   const stopListening = useCallback(() => {
     continuousRef.current = false;
+    if (nativeListeningRef.current && isNativePlatform()) {
+      nativeListeningRef.current = false;
+      void nativeStopListening();
+    }
     if (recognitionRef.current) { recognitionRef.current.abort(); recognitionRef.current = null; }
     setIsListening(false);
     setInterimTranscript("");
@@ -355,7 +445,14 @@ export function useVoice() {
   );
 
   useEffect(() => {
-    return () => { stopListening(); stopSpeaking(); };
+    return () => {
+      stopListening();
+      stopSpeaking();
+      nativeSpeechCleanupRef.current?.();
+      nativeTtsCleanupRef.current?.();
+      nativeSpeechCleanupRef.current = null;
+      nativeTtsCleanupRef.current = null;
+    };
   }, []);
 
   return {

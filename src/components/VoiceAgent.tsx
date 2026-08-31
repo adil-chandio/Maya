@@ -22,6 +22,7 @@ import {
   getBrowserVoices,
   type VoiceSettings,
 } from "../hooks/useVoice";
+import { isNativePlatform, nativeSpeak } from "../lib/native/maya-native";
 
 interface VoiceAgentProps {
   isOpen: boolean;
@@ -165,7 +166,7 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
 
         // Check automation first (instant, no API needed)
         if (isAutomationCommand(text)) {
-          const result = executeAutomation(text);
+          const result = await executeAutomation(text);
           if (result) {
             const response = formatActionResult(result);
             showCommandFeedback(result.message, result.success);
@@ -671,6 +672,12 @@ function VoiceSettingsModal({
   const previewVoice = () => {
     window.speechSynthesis.cancel();
     const text = "Hello! I'm Maya, your personal AI assistant. How can I help you today?";
+    if (ttsProvider === "native" && isNativePlatform()) {
+      setTestVoice("speaking");
+      void nativeSpeak(text, { rate, pitch, language: "en-IN" });
+      setTimeout(() => setTestVoice(""), 4000);
+      return;
+    }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = rate;
     utterance.pitch = pitch;
@@ -709,7 +716,21 @@ function VoiceSettingsModal({
 
         <div className="mb-4">
           <label className="text-xs text-white/40 mb-1.5 block">Voice Engine</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={cn("grid gap-2", isNativePlatform() ? "grid-cols-3" : "grid-cols-2")}>
+            {isNativePlatform() && (
+              <button
+                onClick={() => setTtsProvider("native")}
+                className={cn(
+                  "p-2.5 rounded-lg border text-left transition-all text-xs",
+                  ttsProvider === "native"
+                    ? "bg-maya-cyan/10 border-maya-cyan/40 text-white"
+                    : "bg-white/3 border-white/10 text-white/60"
+                )}
+              >
+                <p className="font-medium">Native</p>
+                <p className="text-white/30 text-[10px]">On-Device • Hindi ✓</p>
+              </button>
+            )}
             <button
               onClick={() => setTtsProvider("browser")}
               className={cn(
@@ -754,8 +775,9 @@ function VoiceSettingsModal({
           </div>
         )}
 
-        {ttsProvider === "browser" && (
+        {(ttsProvider === "browser" || ttsProvider === "native") && (
           <div className="mb-4 space-y-3">
+            {ttsProvider === "browser" && (
             <div>
               <label className="text-[11px] text-white/40 mb-1 block">
                 Voice ({browserVoices.length} available)
@@ -771,6 +793,7 @@ function VoiceSettingsModal({
                 ))}
               </select>
             </div>
+            )}
             <div>
               <label className="text-[11px] text-white/40 mb-1 block">Speed: {rate.toFixed(1)}x</label>
               <input

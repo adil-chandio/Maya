@@ -13,7 +13,13 @@ export type AutomationAction =
   | "set_volume"
   | "open_google_maps"
   | "set_alarm"
-  | "share_text";
+  | "share_text"
+  | "set_torch"
+  | "toggle_wifi"
+  | "toggle_bluetooth"
+  | "device_status"
+  | "take_screenshot"
+  | "ui_action";
 
 export interface AutomationCommand {
   action: AutomationAction;

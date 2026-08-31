@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Key, Eye, EyeOff, Check, ArrowRight, Bot, Mic, Globe } from "lucide-react";
+import { Zap, Key, Eye, EyeOff, Check, ArrowRight, Bot, Mic, Globe, Settings, ShieldCheck, RefreshCw } from "lucide-react";
 import { cn } from "../lib/utils";
 import { PROVIDERS, type Provider } from "../hooks/useChat";
+import { isNativePlatform, nativeOpenSettings, nativeIsAccessibilityEnabled, nativeCanWriteSettings } from "../lib/native/maya-native";
+import { requestNotificationPermission } from "../lib/native/native-bridge";
 
 interface SetupWizardProps {
   isOpen: boolean;
@@ -10,13 +12,20 @@ interface SetupWizardProps {
   onSave: (settings: { provider: Provider; keys: Record<Provider, string>; model: string }) => void;
 }
 
-const STEPS = ["welcome", "select-provider", "enter-key", "done"];
+const STEPS = ["welcome", "select-provider", "enter-key", "native-setup", "done"];
 
 export default function SetupWizard({ isOpen, onComplete, onSave }: SetupWizardProps) {
   const [step, setStep] = useState(0);
   const [provider, setProvider] = useState<Provider>("groq");
   const [keys, setKeys] = useState<Record<Provider, string>>({ groq: "", openrouter: "", gemini: "" });
   const [showKey, setShowKey] = useState(false);
+  const [perms, setPerms] = useState({
+    mic: false,
+    notifications: false,
+    writeSettings: false,
+    accessibility: false,
+    checking: false,
+  });
 
   if (!isOpen) return null;
 
@@ -25,11 +34,33 @@ export default function SetupWizard({ isOpen, onComplete, onSave }: SetupWizardP
 
   const handleSave = () => {
     onSave({ provider, keys, model: config.defaultModel });
-    setStep(3);
-    setTimeout(onComplete, 2000);
+    // On the Android APK, guide the user through native permissions
+    if (isNativePlatform()) setStep(3);
+    else {
+      setStep(4);
+      setTimeout(onComplete, 2000);
+    }
   };
 
   const canProceed = keys[provider]?.length > 5;
+
+  const checkPermissions = useCallback(async () => {
+    setPerms((p) => ({ ...p, checking: true }));
+    let mic = false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      mic = true;
+    } catch { mic = false; }
+    const notifications = await requestNotificationPermission();
+    const writeSettings = await nativeCanWriteSettings();
+    const accessibility = await nativeIsAccessibilityEnabled();
+    setPerms({ mic, notifications, writeSettings, accessibility, checking: false });
+  }, []);
+
+  const openPermScreen = (screen: string) => {
+    void nativeOpenSettings(screen);
+  };
 
   return (
     <AnimatePresence>
@@ -186,6 +217,91 @@ export default function SetupWizard({ isOpen, onComplete, onSave }: SetupWizardP
             </div>
           )}
 
+          {/* Step: Native Permissions (Android APK only) */}
+          {currentStep === "native-setup" && (
+            <div className="space-y-5">
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-white mb-1">Enable Full Device Control</h2>
+                <p className="text-sm text-maya-text-dim">
+                  In 2 steps Maya ko poora phone control karne ki permission dein
+                </p>
+              </div>
+
+              {/* Microphone + Notifications */}
+              <div className="p-4 rounded-xl bg-maya-card border border-maya-border space-y-3">
+                <p className="text-sm font-medium text-white flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-maya-cyan" /> Voice & Alerts
+                </p>
+                <button
+                  onClick={checkPermissions}
+                  className="w-full py-2.5 rounded-lg border border-maya-cyan/30 text-maya-cyan text-xs font-medium hover:bg-maya-cyan/10 transition-all flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5", perms.checking && "animate-spin")} />
+                  {perms.checking ? "Checking..." : "Check Permissions"}
+                </button>
+                <div className="flex justify-between text-xs">
+                  <span className="text-maya-text-dim">🎙️ Microphone</span>
+                  {perms.mic ? <span className="text-maya-green">Granted ✓</span> : <span className="text-maya-amber">Tap check / allow</span>}
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-maya-text-dim">🔔 Notifications</span>
+                  {perms.notifications ? <span className="text-maya-green">Granted ✓</span> : <span className="text-maya-amber">Tap check / allow</span>}
+                </div>
+              </div>
+
+              {/* Write Settings */}
+              <div className="p-4 rounded-xl bg-maya-card border border-maya-border space-y-2">
+                <p className="text-sm font-medium text-white flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-maya-purple" /> Brightness Control
+                </p>
+                <p className="text-xs text-maya-text-dim">
+                  "Set brightness" ke liye Write Settings permission chahiye.
+                </p>
+                <button
+                  onClick={() => openPermScreen("write_settings")}
+                  className="w-full py-2.5 rounded-lg border border-maya-border text-maya-text text-xs font-medium hover:border-maya-purple/40 transition-all"
+                >
+                  Open Write Settings →
+                </button>
+                <div className="flex justify-between text-xs">
+                  <span className="text-maya-text-dim">Status</span>
+                  {perms.writeSettings ? <span className="text-maya-green">Allowed ✓</span> : <span className="text-maya-amber">Allow from list</span>}
+                </div>
+              </div>
+
+              {/* Accessibility */}
+              <div className="p-4 rounded-xl bg-maya-card border border-maya-border space-y-2">
+                <p className="text-sm font-medium text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-maya-green" /> Screen Automation (Next Level)
+                </p>
+                <p className="text-xs text-maya-text-dim">
+                  Tap, type, swipe, scroll, screenshot — kisi bhi app me (WhatsApp, Instagram...).
+                  Search "Maya AI Remote Control" aur ON karein.
+                </p>
+                <button
+                  onClick={() => openPermScreen("accessibility")}
+                  className="w-full py-2.5 rounded-lg border border-maya-green/30 text-maya-green text-xs font-medium hover:bg-maya-green/10 transition-all"
+                >
+                  Open Accessibility Settings →
+                </button>
+                <div className="flex justify-between text-xs">
+                  <span className="text-maya-text-dim">Status</span>
+                  {perms.accessibility ? <span className="text-maya-green">Enabled ✓</span> : <span className="text-maya-amber">Not enabled yet</span>}
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setStep(4);
+                  setTimeout(onComplete, 2000);
+                }}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-maya-cyan to-maya-purple text-white font-medium hover:shadow-lg hover:shadow-maya-cyan/25 transition-all flex items-center justify-center gap-2"
+              >
+                Finish Setup <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Step: Done */}
           {currentStep === "done" && (
             <div className="text-center space-y-5">
@@ -205,7 +321,7 @@ export default function SetupWizard({ isOpen, onComplete, onSave }: SetupWizardP
           )}
 
           {/* Skip for now */}
-          {step < 3 && (
+          {step < 4 && (
             <button
               onClick={onComplete}
               className="w-full text-center text-xs text-maya-text-dim hover:text-maya-text mt-4 transition-colors"

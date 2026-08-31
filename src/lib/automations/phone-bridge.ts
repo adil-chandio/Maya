@@ -1,7 +1,10 @@
 // ===== PHONE BRIDGE =====
 // Handles phone commands: call, SMS, WhatsApp, brightness, volume
+// On Android, volume + brightness go through the native MayaAutomation plugin.
 
 import type { AutomationCommand, AutomationResult } from "./types";
+import { isNativePlatform } from "../native/native-bridge";
+import { nativeSetBrightness, nativeSetVolume } from "../native/maya-native";
 
 function openUrl(url: string): void {
   window.location.href = url;
@@ -36,9 +39,9 @@ export function saveContact(name: string, number: string): void {
   } catch { /* ignore */ }
 }
 
-export function executePhoneCommand(
+export async function executePhoneCommand(
   command: AutomationCommand
-): AutomationResult {
+): Promise<AutomationResult> {
   const { action, params } = command;
   const result: AutomationResult = {
     success: false,
@@ -129,7 +132,20 @@ export function executePhoneCommand(
       case "set_brightness": {
         const level = parseInt(params.level || "50", 10);
 
-        // Try Screen Wake Lock API (experimental, limited support)
+        // Native Android: real brightness control (needs Write Settings permission)
+        if (isNativePlatform()) {
+          const res = await nativeSetBrightness(level);
+          result.success = res.success;
+          result.message = res.message;
+          if ((res as any).needsPermission) {
+            // Plugin already opened the permission screen
+            result.message =
+              "Brightness ke liye 'Write Settings' permission chahiye — settings screen khol di hai. Allow karke dobara bolo.";
+          }
+          break;
+        }
+
+        // Web fallback: Try Screen Wake Lock API (experimental, limited support)
         if ("screen" in window && "brightness" in (window.screen as any)) {
           try {
             (window.screen as any).brightness = level / 100;
@@ -150,7 +166,15 @@ export function executePhoneCommand(
       case "set_volume": {
         const level = parseInt(params.level || "50", 10);
 
-        // Try Web Audio API to adjust volume
+        // Native Android: real system volume
+        if (isNativePlatform()) {
+          const res = await nativeSetVolume(level, "music");
+          result.success = res.success;
+          result.message = res.message;
+          break;
+        }
+
+        // Web fallback: Try Web Audio API to adjust volume
         try {
           // Create a silent audio context to try volume control
           const ctx = new AudioContext();

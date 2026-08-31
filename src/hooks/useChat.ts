@@ -119,6 +119,17 @@ YOU HAVE THESE AUTOMATION POWERS (the system handles everything automatically):
 - Control volume: "volume to 80", "mute"
 - Control brightness: "increase brightness"
 
+🔦 DEVICE CONTROL:
+- Torch: "torch on", "flashlight off karo"
+- WiFi: "wifi off", Bluetooth: "bluetooth chalu karo"
+- Screen: "screenshot lo"
+- Status: "battery kitni hai", "phone status"
+
+🕹️ SCREEN AUTOMATION (any app):
+- Tap: "tap send", "click search"
+- Type: "type hello world"
+- Gestures: "swipe up", "scroll down", "go back", "home", "recent apps"
+
 🎯 CRITICAL RULES - FOLLOW THESE EXACTLY:
 1. When user asks to open/play/call/message/search - JUST SAY "Done!" or "On it!" or "Kar rahi hoon!" - System handles it automatically!
 2. NEVER say "I cannot" or "I don't have access" - You HAVE full automation!
@@ -393,7 +404,7 @@ export function useChat() {
       // Check automation first
       const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
       if (lastUserMsg && isAutomationCommand(lastUserMsg.content)) {
-        const result = executeAutomation(lastUserMsg.content);
+        const result = await executeAutomation(lastUserMsg.content);
         if (result) {
           const text = formatActionResult(result);
           yield text;
@@ -473,7 +484,7 @@ export function useChat() {
         // Check if the last user message is an automation command
         const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
         if (lastUserMsg && isAutomationCommand(lastUserMsg.content)) {
-          const result = executeAutomation(lastUserMsg.content);
+          const result = await executeAutomation(lastUserMsg.content);
           if (result) {
             return formatActionResult(result);
           }

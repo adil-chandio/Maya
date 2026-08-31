@@ -4,6 +4,7 @@
 
 import type { AutomationCommand, AutomationResult } from "./types";
 import { isNativePlatform, openExternalUrl, openYouTube, playYouTubeSearch, openGoogleMaps } from "../native/native-bridge";
+import { nativeLaunchApp, nativeSetAlarm } from "../native/maya-native";
 
 const YOUTUBE_SEARCH_URL = "https://www.youtube.com/results?search_query=";
 const GOOGLE_SEARCH_URL = "https://www.google.com/search?q=";
@@ -67,9 +68,9 @@ function cleanUrl(url: string): string {
   return url.replace(/[.,!?;:]+$/, "").trim();
 }
 
-export function executeWebCommand(
+export async function executeWebCommand(
   command: AutomationCommand
-): AutomationResult {
+): Promise<AutomationResult> {
   const { action, params } = command;
   const result: AutomationResult = {
     success: false,
@@ -174,7 +175,14 @@ export function executeWebCommand(
           result.message = "Which app should I open?";
           break;
         }
-        // Check known apps first
+        // Native Android: launch the real installed app by name
+        if (isNativePlatform()) {
+          const res = await nativeLaunchApp(params.app?.trim());
+          result.success = res.success;
+          result.message = res.message;
+          break;
+        }
+        // Web fallback: Check known apps first
         const directUrl = APP_LINKS[appName];
         if (directUrl) {
           openUrl(directUrl);
@@ -209,9 +217,11 @@ export function executeWebCommand(
         if (period?.toLowerCase() === "am" && hours === 12) hours = 0;
         
         if (isNativePlatform()) {
-          // Use native alarm via Android intent
-          const intent = `intent:#Intent;action=android.intent.action.SET_ALARM;extra=android.intent.extra.alarm.HOUR:${hours};extra=android.intent.extra.alarm.MINUTES:${minutes || 0};end`;
-          window.location.href = intent;
+          // Native Android: system AlarmClock API (Google Clock)
+          const res = await nativeSetAlarm(hours || 0, minutes || 0, params.label || "");
+          result.success = res.success;
+          result.message = res.message;
+          break;
         } else {
           // Web fallback
           openUrl(`https://www.google.com/search?q=set+alarm+for+${encodeURIComponent(time + (period || ""))}`);

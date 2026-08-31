@@ -3,6 +3,7 @@
 // Supports English + Hinglish (Hindi written in English)
 
 import type { AutomationAction, AutomationCommand } from "./types";
+import { isNativePlatform } from "../native/native-bridge";
 
 interface IntentPattern {
   patterns: RegExp[];
@@ -11,6 +12,127 @@ interface IntentPattern {
 }
 
 const INTENT_PATTERNS: IntentPattern[] = [
+  // === TORCH / FLASHLIGHT (HIGHEST PRIORITY - avoids matching "open website") ===
+  {
+    patterns: [
+      /(?:torch|flashlight|flash)\s+(?:on|off|chalao|chalu|band|bujhao|karo|kar)\b/i,
+      /(?:torch|flash|light)\s+(?:on|off)\b/i,
+      /(?:torch|flashlight|light)\s+(?:chalao|bujhao|on|off)\b/i,
+    ],
+    action: "set_torch",
+    extractParams: (_m, input) => ({ on: /(on|chalao|chalu|lagao)/.test(input) ? "true" : "false" }),
+  },
+
+  // === WIFI ===
+  {
+    patterns: [
+      /wifi\s+(?:on|off|chalu|band)\s*(?:karo|kar|do|de)?\b/i,
+      /(?:wifi|wi-fi)\s+(?:chalu|band|on|off)\b/i,
+      /wifi\s+(?:kholo|band\s+karo)\b/i,
+    ],
+    action: "toggle_wifi",
+    extractParams: (_m, input) => ({ on: /(on|chalu|chalao)/.test(input) ? "true" : "false" }),
+  },
+
+  // === BLUETOOTH ===
+  {
+    patterns: [
+      /bluetooth\s+(?:on|off|chalu|band)\s*(?:karo|kar|do|de)?\b/i,
+      /(?:blue\s*tooth)\s+(?:chalu|band|on|off)\b/i,
+    ],
+    action: "toggle_bluetooth",
+    extractParams: (_m, input) => ({ on: /(on|chalu|chalao)/.test(input) ? "true" : "false" }),
+  },
+
+  // === SCREENSHOT ===
+  {
+    patterns: [
+      /screenshot\s+(?:lo|le|karo|kar|de|do|le\s+lo|nikalo)/i,
+      /(?:take\s+)?(?:a\s+)?(?:screen\s*shot|screen\s+capture)\b/i,
+    ],
+    action: "take_screenshot",
+    extractParams: () => ({}),
+  },
+
+  // === DEVICE STATUS / BATTERY ===
+  {
+    patterns: [
+      /(?:device|phone|phone\s+ki)\s+(?:status|info|jaankari|details)\b/i,
+      /(?:battery|charge)\s+(?:status|info|check|kitni|kitna|kya|bachi|bachi|hai|level)\b/i,
+      /(?:how\s+is\s+my\s+)?battery/i,
+    ],
+    action: "device_status",
+    extractParams: () => ({}),
+  },
+
+  // === UI AUTOMATION (tap / type / swipe / scroll / back / home / recents / notifications) ===
+  {
+    patterns: [
+      /(?:click|tap)\s+(?:on\s+)?(.+)/i,
+      /(?:click|tap)\s+(?:karo|kar)\s+(.+)/i,
+      /type\s+(.+)/i,
+      /type\s+(?:karo|kar)\s+(.+)/i,
+      /swipe\s+(left|right|up|down)/i,
+      /swipe\s+(?:karo|kar)?/i,
+      /scroll\s+(up|down|upar|neeche|niche)/i,
+      /scroll\s+(?:karo|kar)?/i,
+      /^(?:go\s+)?back\b/i,
+      /back\s+(?:karo|jao|ja)\b/i,
+      /^home(?:screen)?\b/i,
+      /home\s+(?:pe\s+)?(?:jao|ja|kholo)\b/i,
+      /^(?:recent|recents|recent\s+apps)\b/i,
+      /^(?:notification|notif|notification\s+shade)\b/i,
+      /(?:notifications?)\s+(?:kholo|khol|open|dikhao)/i,
+    ],
+    action: "ui_action",
+    extractParams: (match, input) => {
+      const params: Record<string, string> = {};
+      const lower = input.toLowerCase();
+      if (/^type\b|type\s+(?:karo|kar)/.test(lower)) {
+        params.subtype = "typeText";
+        params.text = input.replace(/^type\s+(?:karo|kar)?\s*/i, "").replace(/\s*(?:karo|kar)\s*$/i, "").trim();
+        return params;
+      }
+      if (/swipe/.test(lower)) {
+        params.subtype = "swipe";
+        params.direction = match[1] || "up";
+        return params;
+      }
+      if (/scroll/.test(lower)) {
+        let dir = match[1] || "down";
+        if (/upar|niche|neeche/.test(lower)) dir = /upar/.test(lower) ? "up" : "down";
+        if (dir === "upar") dir = "up";
+        if (dir === "neeche" || dir === "niche") dir = "down";
+        params.subtype = "scroll";
+        params.direction = dir;
+        return params;
+      }
+      if (/back\b/.test(lower)) {
+        params.subtype = "back";
+        return params;
+      }
+      if (/\bhome\b/.test(lower)) {
+        params.subtype = "home";
+        return params;
+      }
+      if (/recent/.test(lower)) {
+        params.subtype = "recents";
+        return params;
+      }
+      if (/notif|shade/.test(lower)) {
+        params.subtype = "notifications";
+        return params;
+      }
+      // Default: tap text
+      params.subtype = "tapText";
+      params.text = input
+        .replace(/^(?:click|tap)\s+(?:on\s+)?(?:karo\s+|kar\s+)?/i, "")
+        .replace(/(?:karo|kar)\s*$/i, "")
+        .trim();
+      return params;
+    },
+  },
+
   // === YOUTUBE / MUSIC (CHECK FIRST - HIGHEST PRIORITY) ===
   {
     patterns: [
@@ -70,6 +192,20 @@ const INTENT_PATTERNS: IntentPattern[] = [
         query = "trending songs";
       }
       return { query };
+    },
+  },
+
+  // === OPEN KNOWN APP (aise apps phone me hi khulne chahiye, website nahi) ===
+  {
+    patterns: [
+      /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b/i,
+    ],
+    action: "open_app",
+    extractParams: (_m, input) => {
+      const m = input.match(
+        /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b/i
+      );
+      return { app: (m?.[1] || "").trim() };
     },
   },
 
@@ -388,25 +524,26 @@ export function isAutomationCommand(input: string): boolean {
 // ===== GET ALL CAPABILITIES =====
 
 export function getCapabilities() {
+  const native = isNativePlatform();
   return [
     {
       name: "YouTube / Music",
       description: "Play songs, videos on YouTube",
-      examples: ["romantic songs sunao", "play karo na", "youtube pe jao", "play lofi on youtube"],
+      examples: ["romantic songs sunao", "play karo na", "youtube pe jao"],
       available: true,
       icon: "📺",
     },
     {
       name: "Open Website",
       description: "Open any website or URL in browser",
-      examples: ["open youtube.com", "go to google.com", "youtube pe jao"],
+      examples: ["open youtube.com", "go to google.com"],
       available: true,
       icon: "🌐",
     },
     {
       name: "Web Search",
       description: "Search on Google",
-      examples: ["search for React tutorials", "google latest news", "dhundho recipes"],
+      examples: ["search for React tutorials", "google latest news"],
       available: true,
       icon: "🔍",
     },
@@ -427,29 +564,64 @@ export function getCapabilities() {
     {
       name: "WhatsApp",
       description: "Send WhatsApp message",
-      examples: ["whatsapp John saying hello", "whatsapp pe message karo Kumail ko ki hi"],
+      examples: ["whatsapp John saying hello", "whatsapp pe message karo Kumail ko"],
       available: true,
       icon: "📱",
     },
     {
-      name: "Brightness",
-      description: "Control screen brightness (mobile)",
-      examples: ["set brightness to 50", "increase brightness"],
-      available: false,
-      icon: "🔆",
-    },
-    {
       name: "Volume",
-      description: "Control device volume",
-      examples: ["volume to 80", "mute volume"],
-      available: false,
+      description: "Control device volume (Maya native)",
+      examples: ["volume to 80", "mute volume", "volume badhao"],
+      available: native,
       icon: "🔊",
     },
     {
+      name: "Brightness",
+      description: "Control screen brightness (Write Settings permission se)",
+      examples: ["set brightness to 50", "increase brightness"],
+      available: native,
+      icon: "🔆",
+    },
+    {
+      name: "Torch / Flashlight",
+      description: "On/off flashlight directly",
+      examples: ["torch on", "flash off karo"],
+      available: native,
+      icon: "🔦",
+    },
+    {
+      name: "WiFi / Bluetooth",
+      description: "Toggle WiFi & Bluetooth (Android 10+ par settings khulti hai)",
+      examples: ["wifi off", "bluetooth chalu karo"],
+      available: native,
+      icon: "📶",
+    },
+    {
+      name: "Device Status",
+      description: "Battery, model, OS info",
+      examples: ["battery kitni hai", "phone status", "device info"],
+      available: native,
+      icon: "🔋",
+    },
+    {
+      name: "Screenshot",
+      description: "Screen capture (Android 11+)",
+      examples: ["screenshot lo", "take screenshot"],
+      available: native,
+      icon: "📸",
+    },
+    {
+      name: "Screen Control (UI Automation)",
+      description: "Tap, type, swipe, back, home, recents — kisi bhi app me",
+      examples: ["tap send", "swipe up", "type hello", "click search", "scroll down", "go back"],
+      available: native,
+      icon: "🕹️",
+    },
+    {
       name: "Open App",
-      description: "Launch any app by name",
-      examples: ["open camera", "launch instagram", "kholo camera"],
-      available: true,
+      description: "Launch any installed app by name",
+      examples: ["open camera", "launch instagram", "kholo whatsapp"],
+      available: native,
       icon: "📲",
     },
     {
@@ -463,7 +635,7 @@ export function getCapabilities() {
       name: "Set Alarm",
       description: "Set an alarm on your device",
       examples: ["set alarm for 7am", "wake me at 6:30"],
-      available: true,
+      available: native,
       icon: "⏰",
     },
     {
