@@ -19,7 +19,8 @@ export type AutomationAction =
   | "toggle_bluetooth"
   | "device_status"
   | "take_screenshot"
-  | "ui_action";
+  | "ui_action"
+  | "read_notifications";
 
 export interface AutomationCommand {
   action: AutomationAction;

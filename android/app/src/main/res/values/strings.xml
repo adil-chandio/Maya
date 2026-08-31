@@ -7,4 +7,6 @@
 
     <string name="accessibility_service_label">Maya AI Remote Control</string>
     <string name="accessibility_service_description">Maya ko phone screen par tap, type, scroll aur screenshot lene ki permission de. Maya sirf aapke diye gaye commands par kaam karti hai — data kahin bhi share nahi hota.</string>
+    <string name="notification_listener_label">Maya AI Notifications</string>
+    <string name="notification_listener_description">WhatsApp, SMS aur calls ke notifications padhne ki permission — Maya bolke bata sakti hai "notifications padho". Data device se bahar nahi jata.</string>
 </resources>

@@ -10,6 +10,7 @@ import {
   nativeToggleBluetooth,
   nativeTakeScreenshot,
   nativeUiCommand,
+  nativeGetNotifications,
 } from "../native/maya-native";
 
 export async function executeNativeAction(
@@ -71,6 +72,23 @@ export async function executeNativeAction(
           // Store data URL so UI can show it if it wants
           (result as any).dataUrl = res.data;
         }
+        break;
+      }
+
+      case "read_notifications": {
+        const notes = await nativeGetNotifications(8);
+        if (!notes.length) {
+          result.message =
+            "Koi recent notification nahi mili. Notification access ON karo (Settings → Notification access → Maya AI Notifications) aur jab koi message aaye to dobara bolo.";
+          result.success = false;
+          break;
+        }
+        const lines = notes
+          .slice(0, 8)
+          .map((n: any) => `• ${n.title || n.package}: ${(n.text || "").slice(0, 90)}`)
+          .join("\n");
+        result.success = true;
+        result.message = `📬 Recent notifications:\n${lines}`;
         break;
       }
 

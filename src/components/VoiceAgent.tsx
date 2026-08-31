@@ -146,6 +146,32 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
     }, 800);
   }, [voice, sleeping]);
 
+  // ===== WAKE WORD (in-app): Sleep mode me "Hey Maya" bolo to jaag jati hai =====
+  useEffect(() => {
+    if (!sleeping || !isActive) return;
+    let active = true;
+    void voice.startListening(
+      (t) => {
+        if (/hey maya|hi maya|may[a]?\s+(?:wake|jago|jaago|jao|on)|wake up|maya\s+maya/i.test(t.toLowerCase())) {
+          if (!active) return;
+          active = false;
+          voice.stopListening();
+          setSleeping(false);
+          void voice.speak("Haan bhai! Maya aa gayi. Bolo, kya karna hai?");
+          setTimeout(() => {
+            if (activeRef.current) void voice.startListening(handleVoiceMessage, false);
+          }, 1500);
+        }
+      },
+      true
+    );
+    return () => {
+      active = false;
+      voice.stopListening();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sleeping, isActive]);
+
   const handleVoiceMessage = useCallback(
     async (text: string) => {
       if (processingRef.current || !text.trim()) return;

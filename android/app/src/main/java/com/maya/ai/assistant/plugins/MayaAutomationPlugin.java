@@ -686,6 +686,103 @@ public class MayaAutomationPlugin extends Plugin {
     }
 
     // =====================================================================
+    // FLOATING BUBBLE (overlay)
+    // =====================================================================
+
+    @PluginMethod
+    public void canDrawOverlays(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("can", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext()));
+        out.put("success", true);
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void openOverlaySettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            launchIntent(i);
+            call.resolve(success("Overlay permission screen khol di — 'Allow' karo"));
+        } catch (Exception e) {
+            try {
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                launchIntent(i);
+                call.resolve(failure("Overlay settings kholi — Maya ko allow karo"));
+            } catch (Exception e2) {
+                call.resolve(failure("Overlay settings nahi khuli: " + e2.getMessage()));
+            }
+        }
+    }
+
+    @PluginMethod
+    public void startOverlay(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(getContext())) {
+            JSObject out = failure("Overlay permission nahi hai — settings khol raha hoon. Allow karke dobara bolo.");
+            out.put("needsPermission", true);
+            call.resolve(out);
+            return;
+        }
+        try {
+            Intent i = new Intent(getContext(), com.maya.ai.assistant.services.MayaOverlayBubbleService.class);
+            if (Build.VERSION.SDK_INT >= 26) {
+                getContext().startForegroundService(i);
+            } else {
+                getContext().startService(i);
+            }
+            call.resolve(success("Maya floating bubble ON — har app ke upar dikhegi. Tap karo to khulegi."));
+        } catch (Exception e) {
+            call.resolve(failure("Bubble start nahi hua: " + e.getMessage()));
+        }
+    }
+
+    @PluginMethod
+    public void stopOverlay(PluginCall call) {
+        try {
+            Intent i = new Intent(getContext(), com.maya.ai.assistant.services.MayaOverlayBubbleService.class);
+            getContext().stopService(i);
+            call.resolve(success("Bubble band kar di"));
+        } catch (Exception e) {
+            call.resolve(failure("Bubble stop nahi hua: " + e.getMessage()));
+        }
+    }
+
+    @PluginMethod
+    public void isOverlayRunning(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("running", com.maya.ai.assistant.services.MayaOverlayBubbleService.isRunning());
+        out.put("success", true);
+        call.resolve(out);
+    }
+
+    // =====================================================================
+    // NOTIFICATIONS
+    // =====================================================================
+
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            launchIntent(i);
+            call.resolve(success("Notification access settings khol di — 'Maya AI Notifications' ON karo"));
+        } catch (Exception e) {
+            call.resolve(failure("Settings nahi khuli: " + e.getMessage()));
+        }
+    }
+
+    @PluginMethod
+    public void getNotifications(PluginCall call) {
+        int limit = call.getInt("limit", 10);
+        JSObject out = new JSObject();
+        out.put("notifications", com.maya.ai.assistant.services.MayaNotificationListener.getRecent(limit));
+        out.put("success", true);
+        call.resolve(out);
+    }
+
+    // =====================================================================
     // HELPERS
     // =====================================================================
 

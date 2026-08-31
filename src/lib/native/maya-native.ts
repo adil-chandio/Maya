@@ -53,6 +53,13 @@ interface MayaAutomationNativePlugin {
   openYouTubeSearch(options: { query: string }): Promise<NativeResult>;
   isAppInstalled(options: { packageName: string }): Promise<{ installed: boolean }>;
   uiCommand(options: { type: string; params?: Record<string, any> }): Promise<NativeResult>;
+  canDrawOverlays(): Promise<{ can: boolean }>;
+  openOverlaySettings(): Promise<NativeResult>;
+  startOverlay(): Promise<NativeResult>;
+  stopOverlay(): Promise<NativeResult>;
+  isOverlayRunning(): Promise<{ running: boolean }>;
+  openNotificationSettings(): Promise<NativeResult>;
+  getNotifications(options?: { limit?: number }): Promise<{ notifications: any[] }>;
   takeScreenshot(options?: { maxWidth?: number; quality?: number }): Promise<NativeResult>;
   getForegroundApp(): Promise<NativeResult>;
 }
@@ -225,6 +232,62 @@ export async function nativeIsAppInstalled(packageName: string): Promise<boolean
     return !!res?.installed;
   } catch {
     return false;
+  }
+}
+
+export async function nativeCanDrawOverlays(): Promise<boolean> {
+  if (!nativePluginsAvailable()) return false;
+  try {
+    const res = await MayaAutomation.canDrawOverlays();
+    return !!res?.can;
+  } catch {
+    return false;
+  }
+}
+
+export async function nativeOpenOverlaySettings(): Promise<NativeResult> {
+  if (!nativePluginsAvailable()) return fallback("Native overlay not available");
+  try {
+    return await MayaAutomation.openOverlaySettings();
+  } catch (e: any) {
+    return fallback(`Overlay settings failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeStartOverlay(): Promise<NativeResult> {
+  if (!nativePluginsAvailable()) return fallback("Native overlay not available");
+  try {
+    return await MayaAutomation.startOverlay();
+  } catch (e: any) {
+    return fallback(`Overlay failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeStopOverlay(): Promise<NativeResult> {
+  if (!nativePluginsAvailable()) return fallback("Native overlay not available");
+  try {
+    return await MayaAutomation.stopOverlay();
+  } catch (e: any) {
+    return fallback(`Overlay stop failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeOpenNotificationSettings(): Promise<NativeResult> {
+  if (!nativePluginsAvailable()) return fallback("Native notification settings not available");
+  try {
+    return await MayaAutomation.openNotificationSettings();
+  } catch (e: any) {
+    return fallback(`Notification settings failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeGetNotifications(limit = 10): Promise<any[]> {
+  if (!nativePluginsAvailable()) return [];
+  try {
+    const res = await MayaAutomation.getNotifications({ limit });
+    return res?.notifications || [];
+  } catch {
+    return [];
   }
 }
 

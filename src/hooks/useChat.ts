@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { executeAutomation, isAutomationCommand, formatActionResult } from "../lib/automations";
+import { executeAutomation, isAutomationCommand, formatActionResult, executeDirectTool } from "../lib/automations";
 import {
   buildContext,
   detectLanguage,
@@ -329,6 +329,91 @@ async function callGemini(messages: ChatMessage[], apiKey: string, model: string
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
 }
 
+// ===== LLM TOOL-CALLING ("dimag lagao"): AI khud decide kare kaunsa action =====
+// Complex commands ke liye LLM se JSON plan mangte hain, phir execute karte hain.
+const TOOL_PROMPT = `You are Maya's action planner. Decide if the user's request needs a phone action.
+If YES, reply with ONLY a JSON object (no markdown, no other text):
+{"tool":"<one of: open_app, youtube_play, open_website, web_search, make_call, send_whatsapp, send_sms, set_alarm, set_torch, set_volume, set_brightness, take_screenshot, device_status, ui_action, read_notifications, open_google_maps>","params":{...}}
+Rules:
+- open_app params: {"app":"instagram"} — add "autoScroll":true if user says scroll/swipe/reels
+- youtube_play params: {"query":"song name"} — for ANY song/music request
+- make_call params: {"contact":"name or number"}
+- send_whatsapp params: {"contact":"name","message":"text"}
+- set_alarm params: {"time":"7:30 am"}
+- set_torch params: {"on":true} / {"on":false}
+- set_volume params: {"level":80}; set_brightness params: {"level":50}
+- ui_action params: {"subtype":"tapText","text":"search"} or {"subtype":"typeText","text":"hi"} or {"subtype":"swipe","direction":"up"} or {"subtype":"scroll","direction":"down"}
+- read_notifications params: {}
+If it's NOT an action (question, chat, help), reply with ONLY: {"tool":"none"}
+Current time: ${new Date().toLocaleString()} User language: as user.`;
+
+async function askToolCall(messages: ChatMessage[], settings: ProviderSettings): Promise<{ tool: string; params: Record<string, any> } | null> {
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  if (!last) return null;
+  const text = last.content;
+
+  // Sirf action-like commands par LLM tool try karo (normal chat hijack nahi)
+  const looksAction = /(?:kholo|khol|lagao|chalao|play|bajao|suno|sunao|bhejo|karo|calls?|dial|scroll|swipe|type|tap|click|screenshot|torch|flash|battery|status|alarm|whatsapp|search|dhundho|maps|notifications?)/i.test(text);
+  if (!looksAction) return null;
+
+  const { keys } = settings;
+  const prov = settings.provider;
+  const apiKey = keys[prov];
+  if (!apiKey) return null;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9000);
+    const url = prov === "gemini"
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${settings.model || "gemini-3.6-flash"}:generateContent?key=${encodeURIComponent(apiKey)}`
+      : prov === "openrouter" ? "https://openrouter.ai/api/v1/chat/completions" : "https://api.groq.com/openai/v1/chat/completions";
+
+    let toolJson = "";
+    if (prov === "gemini") {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: TOOL_PROMPT }] },
+            { role: "model", parts: [{ text: "Understood." }] },
+            { role: "user", parts: [{ text: `User: ${text}` }] },
+          ],
+          generationConfig: { temperature: 0, maxOutputTokens: 300 },
+        }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      toolJson = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    } else {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: prov === settings.provider ? settings.model : "meta-llama/llama-3.1-8b-instruct:free",
+          messages: [{ role: "user", content: TOOL_PROMPT + `\n\nUser: ${text}` }],
+          temperature: 0,
+          max_tokens: 300,
+        }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      toolJson = data?.choices?.[0]?.message?.content || "";
+    }
+    clearTimeout(timer);
+
+    const m = toolJson.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const parsed = JSON.parse(m[0]);
+    if (parsed.tool === "none" || !parsed.tool) return null;
+    return { tool: parsed.tool, params: parsed.params || {} };
+  } catch {
+    return null;
+  }
+}
+
 // ===== STREAMING: Call provider with streaming =====
 async function* streamGroq(messages: ChatMessage[], apiKey: string, model: string, systemPrompt?: string): AsyncGenerator<string> {
   const response = await fetch(PROVIDERS.groq.url, {
@@ -433,6 +518,16 @@ export function useChat() {
         const p = getPersona();
         yield `${p.emoji} Done! Ab main ${p.name} hoon — ${p.tagline}`;
         return;
+      }
+
+      // ===== LLM TOOL-CALLING: AI khud plan banaye (regex ke baad, chat se pehle) =====
+      const toolCall = await askToolCall(history, settings);
+      if (toolCall) {
+        const res = await executeDirectTool(toolCall.tool, { ...toolCall.params, rawInput: userText });
+        if (res) {
+          yield formatActionResult(res);
+          return;
+        }
       }
 
       // ===== SCREEN VISION ("look at my screen") =====

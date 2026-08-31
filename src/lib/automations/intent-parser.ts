@@ -94,6 +94,17 @@ const INTENT_PATTERNS: IntentPattern[] = [
     },
   },
 
+  // === READ NOTIFICATIONS (notification listener se) ===
+  {
+    patterns: [
+      /(?:read|check)\s+(?:my\s+)?notifications/i,
+      /notifications?\s+(?:padho|padh|suno|sunao|batao|dikhao)\b/i,
+      /(?:notifications?)\s+(?:kya|kaunse)\s+(?:hain|aaye|aayi)/i,
+    ],
+    action: "read_notifications",
+    extractParams: () => ({}),
+  },
+
   // === UI AUTOMATION (tap / type / swipe / scroll / back / home / recents / notifications) ===
   {
     patterns: [
@@ -148,7 +159,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
         params.subtype = "recents";
         return params;
       }
-      if (/notif|shade/.test(lower)) {
+      if (/notif|shade/.test(lower) && !/(?:padho|padh|suno|sunao|batao|read|check)/.test(lower)) {
         params.subtype = "notifications";
         return params;
       }

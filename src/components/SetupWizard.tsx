@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, Key, Eye, EyeOff, Check, ArrowRight, Bot, Mic, Globe, Settings, ShieldCheck, RefreshCw } from "lucide-react";
 import { cn } from "../lib/utils";
 import { PROVIDERS, type Provider } from "../hooks/useChat";
-import { isNativePlatform, nativeOpenSettings, nativeIsAccessibilityEnabled, nativeCanWriteSettings } from "../lib/native/maya-native";
+import { isNativePlatform, nativeOpenSettings, nativeIsAccessibilityEnabled, nativeCanWriteSettings, nativeOpenOverlaySettings, nativeOpenNotificationSettings } from "../lib/native/maya-native";
 import { requestNotificationPermission } from "../lib/native/native-bridge";
 
 interface SetupWizardProps {
@@ -287,6 +287,30 @@ export default function SetupWizard({ isOpen, onComplete, onSave }: SetupWizardP
                 <div className="flex justify-between text-xs">
                   <span className="text-maya-text-dim">Status</span>
                   {perms.accessibility ? <span className="text-maya-green">Enabled ✓</span> : <span className="text-maya-amber">Not enabled yet</span>}
+                </div>
+              </div>
+
+              {/* Floating Bubble + Notifications */}
+              <div className="p-4 rounded-xl bg-maya-card border border-maya-border space-y-2">
+                <p className="text-sm font-medium text-white flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-maya-cyan" /> Floating Bubble & Notifications
+                </p>
+                <p className="text-xs text-maya-text-dim">
+                  Har app ke upar Maya ka floating orb + WhatsApp messages padhne ki permission.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => void nativeOpenOverlaySettings()}
+                    className="py-2 rounded-lg border border-maya-border text-maya-text text-xs font-medium hover:border-maya-cyan/40 transition-all"
+                  >
+                    Bubble Permission →
+                  </button>
+                  <button
+                    onClick={() => void nativeOpenNotificationSettings()}
+                    className="py-2 rounded-lg border border-maya-border text-maya-text text-xs font-medium hover:border-maya-cyan/40 transition-all"
+                  >
+                    Notification Access →
+                  </button>
                 </div>
               </div>
 
