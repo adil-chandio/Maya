@@ -136,12 +136,12 @@ public class MayaSpeechPlugin extends Plugin {
     private final RecognitionListener listener = new RecognitionListener() {
         @Override
         public void onReadyForSpeech(Bundle params) {
-            notify("status", "ready", null);
+            sendEvent("status", "ready", null);
         }
 
         @Override
         public void onBeginningOfSpeech() {
-            notify("status", "listening", null);
+            sendEvent("status", "listening", null);
         }
 
         @Override
@@ -154,14 +154,14 @@ public class MayaSpeechPlugin extends Plugin {
 
         @Override
         public void onEndOfSpeech() {
-            notify("status", "processing", null);
+            sendEvent("status", "processing", null);
         }
 
         @Override
         public void onError(int error) {
             String code = errorCode(error);
             if (continuous && running) {
-                notify("error", code, null);
+                sendEvent("error", code, null);
                 restartAfter(250);
             } else {
                 running = false;
@@ -184,7 +184,7 @@ public class MayaSpeechPlugin extends Plugin {
                 restartAfter(200);
             } else {
                 running = false;
-                notify("status", "done", null);
+                sendEvent("status", "done", null);
             }
         }
 
@@ -213,7 +213,7 @@ public class MayaSpeechPlugin extends Plugin {
         }, delayMs);
     }
 
-    private void notify(String event, String value, String extra) {
+    private void sendEvent(String event, String value, String extra) {
         JSObject out = new JSObject();
         out.put(event, value);
         if (extra != null) out.put("extra", extra);

@@ -207,9 +207,7 @@ public class MayaAutomationPlugin extends Plugin {
             app.put("name", pm.getApplicationLabel(ai).toString());
             app.put("packageName", ai.packageName);
             app.put("isSystem", (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
-            try {
-                result.put(app);
-            } catch (JSONException ignored) { }
+            result.put(app);
             count++;
         }
         JSObject out = new JSObject();
@@ -481,11 +479,16 @@ public class MayaAutomationPlugin extends Plugin {
             // Try opening the clock app
             try {
                 Intent clock = getContext().getPackageManager().getLaunchIntentForPackage("com.google.android.deskclock");
-                if (clock != null) clock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                launchIntent(clock == null
-                        ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_ALARM)
-                        : clock);
-                call.resolve(failure("System alarm API blocked — Clock app khol diya. Alarm manual set karein."));
+                if (clock == null) {
+                    clock = getContext().getPackageManager().getLaunchIntentForPackage("com.android.deskclock");
+                }
+                if (clock != null) {
+                    clock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    launchIntent(clock);
+                    call.resolve(failure("System alarm API blocked — Clock app khol diya. Alarm manual set karein."));
+                } else {
+                    call.resolve(failure("Alarm set nahi ho paya — Clock app nahi mila."));
+                }
             } catch (Exception e2) {
                 call.resolve(failure("Alarm set nahi ho paya: " + e2.getMessage()));
             }
@@ -570,9 +573,13 @@ public class MayaAutomationPlugin extends Plugin {
         Iterator<String> keys = result.keys();
         while (keys.hasNext()) {
             String k = keys.next();
+            Object v;
             try {
-                out.put(k, result.get(k));
-            } catch (JSONException ignored) { }
+                v = result.get(k); // JSONObject.get() throws JSONException
+            } catch (JSONException e) {
+                continue;
+            }
+            out.put(k, v);
         }
         if (extra != null) out.put("type", extra);
         return out;

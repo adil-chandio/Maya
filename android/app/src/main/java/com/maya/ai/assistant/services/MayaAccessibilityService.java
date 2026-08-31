@@ -279,7 +279,7 @@ public class MayaAccessibilityService extends AccessibilityService {
         return exact ? c.equals(q) : c.contains(q);
     }
 
-    private void tapText(JSONObject params, UiCallback callback, boolean useDesc) {
+    private void tapText(JSONObject params, UiCallback callback, boolean useDesc) throws JSONException {
         String text = params.optString("text", "");
         int index = params.optInt("index", 0);
         boolean exact = params.optBoolean("exact", false);

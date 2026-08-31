@@ -70,8 +70,10 @@ public class MayaTtsPlugin extends Plugin {
     @PluginMethod
     public void speak(PluginCall call) {
         final String text = call.getString("text", "");
-        final float rate = (float) call.getDouble("rate", 1.0);
-        final float pitch = (float) call.getDouble("pitch", 1.0);
+        Double rateD = call.getDouble("rate", 1.0);
+        Double pitchD = call.getDouble("pitch", 1.0);
+        final float rate = rateD == null ? 1.0f : rateD.floatValue();
+        final float pitch = pitchD == null ? 1.0f : pitchD.floatValue();
         final String language = call.getString("language", "en-IN");
         currentLanguage = language;
         utteranceId = UUID.randomUUID().toString();
@@ -158,9 +160,7 @@ public class MayaTtsPlugin extends Plugin {
             o.put("name", v.getName());
             o.put("language", v.getLocale().toLanguageTag());
             o.put("quality", v.getQuality());
-            try {
-                voices.put(o);
-            } catch (JSONException ignored) { }
+            voices.put(o);
         }
         JSObject out = new JSObject();
         out.put("voices", voices);
