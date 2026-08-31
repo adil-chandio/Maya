@@ -142,18 +142,25 @@ export async function executeWebCommand(
           break;
         }
         if (isNativePlatform()) {
-          // NATIVE FLOW: YouTube app me search kholo → pehli video auto-tap (sach mein song chalta hai!)
+          // NATIVE FLOW: YouTube APP me search kholo → pehli video auto-tap (sach mein song chalta hai!)
           const res = await nativeOpenYouTubeSearch(query);
           if (res.success) {
-            await delay(2200); // results load hone do
-            const play = await nativeUiCommand("playFirstResult", { timeoutMs: 8000 });
-            if (play.success) {
-              result.success = true;
-              result.message = `"${query}" play ho rahi hai 🎵`;
-            } else {
-              result.success = true;
-              result.message = `YouTube app me "${query}" search khul gaya — pehli video tap karo 🎵`;
+            // Results load hone do (YouTube app thoda slow hai mobile par)
+            await delay(3500);
+            // 4 baar try karo — kabhi kabhi pehli baar layout ready nahi hota
+            let played = false;
+            for (let attempt = 0; attempt < 4 && !played; attempt++) {
+              const play = await nativeUiCommand("playFirstResult", { timeoutMs: 6000 });
+              if (play.success) {
+                played = true;
+                break;
+              }
+              await delay(1200);
             }
+            result.success = true;
+            result.message = played
+              ? `"${query}" YouTube app me play ho rahi hai 🎵`
+              : `YouTube app me "${query}" search khul gaya — video par tap kar do 🎵`;
           } else {
             result.success = false;
             result.message = res.message;

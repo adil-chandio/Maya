@@ -219,22 +219,45 @@ public class MayaAutomationPlugin extends Plugin {
     @PluginMethod
     public void openYouTubeSearch(PluginCall call) {
         String query = call.getString("query", "");
+        String searchUrl = "https://www.youtube.com/results?search_query=" + Uri.encode(query);
         try {
-            // YouTube app ke andar search kholo (deep link)
-            Intent i = new Intent(Intent.ACTION_VIEW,
-                    Uri.parse("vnd.youtube:search?query=" + Uri.encode(query)));
-            i.setPackage("com.google.android.youtube");
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            launchIntent(i);
-            call.resolve(success("YouTube search khul gaya"));
-        } catch (Exception e) {
-            // YouTube app nahi hai → browser fallback
+            // Pehle check: YouTube app installed hai?
+            boolean installed = false;
             try {
-                Intent b = new Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)));
-                b.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                launchIntent(b);
-                call.resolve(failure("YouTube app nahi mila — browser me search khol diya"));
+                getContext().getPackageManager().getPackageInfo("com.google.android.youtube", 0);
+                installed = true;
+            } catch (Exception ignored) { }
+
+            if (installed) {
+                // YOUTUBE APP ke andar search (Chrome kabhi nahi — package fixed hai)
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(searchUrl));
+                i.setPackage("com.google.android.youtube");
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                launchIntent(i);
+                call.resolve(success("YouTube app me search khul gaya"));
+            } else {
+                // App installed nahi → PLAY STORE page (browser nahi)
+                Intent store = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=com.google.android.youtube"));
+                store.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    launchIntent(store);
+                } catch (Exception e) {
+                    store = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.youtube"));
+                    store.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    launchIntent(store);
+                }
+                call.resolve(failure("YouTube app installed nahi hai — Play Store khol diya. Install karke phir bolo."));
+            }
+        } catch (Exception e) {
+            // Launch fail → Play Store fallback (Chrome kabhi default nahi)
+            try {
+                Intent store = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=com.google.android.youtube"));
+                store.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                launchIntent(store);
+                call.resolve(failure("YouTube app nahi khul paya — Play Store khol diya."));
             } catch (Exception e2) {
                 call.resolve(failure("YouTube nahi khul paya: " + e2.getMessage()));
             }

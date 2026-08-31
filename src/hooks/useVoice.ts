@@ -136,12 +136,29 @@ function findBestVoice(preferredName?: string): SpeechSynthesisVoice | null {
 }
 
 // ===== NATURAL CLOUD TTS (free, no key — Google-quality voices) =====
+// Multiple endpoints try karta hai (koi ek bhi block ho to dusra chal jata hai)
 async function ttsCloud(text: string, voice: string): Promise<string> {
-  const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Cloud TTS error ${response.status}`);
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
+  const endpoints = [
+    `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`,
+    // Google Translate TTS fallback (universal access, thodi slower)
+    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`,
+  ];
+  let lastError: Error | null = null;
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        lastError = new Error(`Cloud TTS error ${response.status}`);
+        continue;
+      }
+      const blob = await response.blob();
+      if (blob.size > 500) return URL.createObjectURL(blob);
+      lastError = new Error("Empty audio");
+    } catch (e: any) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error("Cloud TTS failed");
 }
 
 // ElevenLabs TTS
