@@ -3,8 +3,12 @@
 // Uses native bridge when running on Android for better integration
 
 import type { AutomationCommand, AutomationResult } from "./types";
-import { isNativePlatform, openExternalUrl, openYouTube, playYouTubeSearch, openGoogleMaps } from "../native/native-bridge";
-import { nativeLaunchApp, nativeSetAlarm } from "../native/maya-native";
+import { isNativePlatform, openExternalUrl, openYouTube, openGoogleMaps } from "../native/native-bridge";
+import { nativeLaunchApp, nativeSetAlarm, nativeOpenYouTubeSearch, nativeUiCommand } from "../native/maya-native";
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const YOUTUBE_SEARCH_URL = "https://www.youtube.com/results?search_query=";
 const GOOGLE_SEARCH_URL = "https://www.google.com/search?q=";
@@ -138,12 +142,27 @@ export async function executeWebCommand(
           break;
         }
         if (isNativePlatform()) {
-          playYouTubeSearch(query);
+          // NATIVE FLOW: YouTube app me search kholo → pehli video auto-tap (sach mein song chalta hai!)
+          const res = await nativeOpenYouTubeSearch(query);
+          if (res.success) {
+            await delay(2200); // results load hone do
+            const play = await nativeUiCommand("playFirstResult", { timeoutMs: 8000 });
+            if (play.success) {
+              result.success = true;
+              result.message = `"${query}" play ho rahi hai 🎵`;
+            } else {
+              result.success = true;
+              result.message = `YouTube app me "${query}" search khul gaya — pehli video tap karo 🎵`;
+            }
+          } else {
+            result.success = false;
+            result.message = res.message;
+          }
         } else {
           openUrl(`${YOUTUBE_SEARCH_URL}${encodeURIComponent(query)}`);
+          result.success = true;
+          result.message = `Playing "${query}" on YouTube`;
         }
-        result.success = true;
-        result.message = `Playing "${query}" on YouTube`;
         break;
       }
 
@@ -180,6 +199,15 @@ export async function executeWebCommand(
           const res = await nativeLaunchApp(params.app?.trim());
           result.success = res.success;
           result.message = res.message;
+          // "open instagram and scroll reels" → app kholo + swipe karo
+          if (res.success && params.autoScroll === "true") {
+            await delay(1600);
+            for (let i = 0; i < 3; i++) {
+              await nativeUiCommand("swipe", { direction: "up" });
+              await delay(800);
+            }
+            result.message = `App khol diya aur ${params.app} me scroll bhi kar diya 👇`;
+          }
           break;
         }
         // Web fallback: Check known apps first

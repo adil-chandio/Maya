@@ -15,12 +15,17 @@ const INTENT_PATTERNS: IntentPattern[] = [
   // === TORCH / FLASHLIGHT (HIGHEST PRIORITY - avoids matching "open website") ===
   {
     patterns: [
-      /(?:torch|flashlight|flash)\s+(?:on|off|chalao|chalu|band|bujhao|karo|kar)\b/i,
+      /(?:torch|flashlight|flash|light)\s+(?:on|off|chalao|chalu|band|bujhao|karo|kar|open|kholo|khol)\b/i,
       /(?:torch|flash|light)\s+(?:on|off)\b/i,
       /(?:torch|flashlight|light)\s+(?:chalao|bujhao|on|off)\b/i,
+      /(?:open|kholo|chalao)\s+(?:the\s+)?(?:torch|flashlight|flash|light)\b/i,
+      /torch\s+(?:kholo|chalu|on)\b/i,
     ],
     action: "set_torch",
-    extractParams: (_m, input) => ({ on: /(on|chalao|chalu|lagao)/.test(input) ? "true" : "false" }),
+    extractParams: (_m, input) => {
+      const off = /(off|band|bujhao)/.test(input);
+      return { on: off ? "false" : "true" };
+    },
   },
 
   // === WIFI ===
@@ -198,14 +203,20 @@ const INTENT_PATTERNS: IntentPattern[] = [
   // === OPEN KNOWN APP (aise apps phone me hi khulne chahiye, website nahi) ===
   {
     patterns: [
-      /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b/i,
+      /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b(.*)$/i,
     ],
     action: "open_app",
     extractParams: (_m, input) => {
       const m = input.match(
-        /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b/i
+        /(?:open|launch|start|kholo)\s+(?:the\s+)?(?:app\s+)?(instagram|whatsapp|whats\s*app|camera|youtube|yt|gmail|maps|spotify|netflix|facebook|telegram|twitter|tiktok|snapchat|chrome|photos|drive|gallery|calculator|settings|phone|dialer|messages|play\s*store)\b(.*)$/i
       );
-      return { app: (m?.[1] || "").trim() };
+      const rest = m?.[2] || "";
+      const params: Record<string, string> = { app: (m?.[1] || "").trim() };
+      // "open instagram and scroll reels" → app kholo + auto scroll
+      if (/(?:scroll|swipe|scroll\s+karo|scroll\s+kar)/i.test(rest) || /(?:scroll|swipe)/.test(input)) {
+        params.autoScroll = "true";
+      }
+      return params;
     },
   },
 

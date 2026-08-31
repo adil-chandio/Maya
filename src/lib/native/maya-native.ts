@@ -50,6 +50,8 @@ interface MayaAutomationNativePlugin {
   toggleBluetooth(options: { on: boolean }): Promise<NativeResult>;
   setAlarm(options: { hours: number; minutes: number; label?: string }): Promise<NativeResult>;
   openSettings(options: { screen: string }): Promise<NativeResult>;
+  openYouTubeSearch(options: { query: string }): Promise<NativeResult>;
+  isAppInstalled(options: { packageName: string }): Promise<{ installed: boolean }>;
   uiCommand(options: { type: string; params?: Record<string, any> }): Promise<NativeResult>;
   takeScreenshot(options?: { maxWidth?: number; quality?: number }): Promise<NativeResult>;
   getForegroundApp(): Promise<NativeResult>;
@@ -204,6 +206,25 @@ export async function nativeTakeScreenshot(maxWidth = 720, quality = 70): Promis
     return await MayaAutomation.takeScreenshot({ maxWidth, quality });
   } catch (e: any) {
     return fallback(`Screenshot failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeOpenYouTubeSearch(query: string): Promise<NativeResult> {
+  if (!nativePluginsAvailable()) return fallback("Native YouTube not available");
+  try {
+    return await MayaAutomation.openYouTubeSearch({ query });
+  } catch (e: any) {
+    return fallback(`YouTube failed: ${e?.message || e}`);
+  }
+}
+
+export async function nativeIsAppInstalled(packageName: string): Promise<boolean> {
+  if (!nativePluginsAvailable()) return false;
+  try {
+    const res = await MayaAutomation.isAppInstalled({ packageName });
+    return !!res?.installed;
+  } catch {
+    return false;
   }
 }
 

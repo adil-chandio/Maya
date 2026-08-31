@@ -20,6 +20,9 @@ import {
   detectMood,
   updateUserMood,
 } from "../lib/core";
+import { getPersona, setPersona, detectPersonaCommand } from "../lib/core/personas";
+import { handleScreenVision, isScreenVisionCommand } from "../lib/core/vision";
+import { nativeTakeScreenshot } from "../lib/native/maya-native";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -83,7 +86,10 @@ export const PROVIDERS: Record<Provider, ProviderConfig> = {
 };
 
 function buildSystemPrompt(langHint: string): string {
-  return `You are Maya - an advanced AI assistant that FULLY CONTROLS the user's phone. You are like JARVIS from Iron Man. You have COMPLETE device control.
+  const persona = getPersona();
+  return `${persona.systemPromptExtra}
+
+You are ${persona.name} (${persona.emoji}) - an advanced AI assistant that FULLY CONTROLS the user's phone. You are like JARVIS from Iron Man. You have COMPLETE device control.
 
 LANGUAGE RULES:
 ${langHint}
@@ -419,6 +425,31 @@ export function useChat() {
       trackLanguage(lang);
       trackMessage();
       updateUserMood(detectMood(userText));
+
+      // ===== PERSONA SWITCH (Maya / Friday / Venom) =====
+      const personaCmd = detectPersonaCommand(userText);
+      if (personaCmd) {
+        setPersona(personaCmd);
+        const p = getPersona();
+        yield `${p.emoji} Done! Ab main ${p.name} hoon — ${p.tagline}`;
+        return;
+      }
+
+      // ===== SCREEN VISION ("look at my screen") =====
+      if (isScreenVisionCommand(userText)) {
+        const vision = await handleScreenVision(userText);
+        if (vision) {
+          yield `👁️ ${vision}`;
+          return;
+        }
+        yield "👁️ Screen vision ke liye Gemini API key chahiye (Settings me). Screenshot leta hun — abhi dekh rahi hoon...";
+        // screenshot le kar bata do kam se kam
+        const shot = await nativeTakeScreenshot(1024, 75);
+        if (shot.success) {
+          yield "📸 Screenshot le liya! Ab batao screen par kya dekhna hai?";
+        }
+        return;
+      }
 
       // Smart responses (non-streaming, instant)
       const smartResponse = findSmartResponse(userText, ctx);

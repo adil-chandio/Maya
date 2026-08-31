@@ -20,9 +20,11 @@ import { showCommandFeedback } from "./CommandFeedback";
 import {
   useVoice,
   getBrowserVoices,
+  CLOUD_VOICES,
   type VoiceSettings,
 } from "../hooks/useVoice";
 import { isNativePlatform, nativeSpeak } from "../lib/native/maya-native";
+import { PERSONAS, getPersona, setPersona, type PersonaId } from "../lib/core/personas";
 
 interface VoiceAgentProps {
   isOpen: boolean;
@@ -113,10 +115,19 @@ function AudioWaveform({ isListening, isSpeaking }: { isListening: boolean; isSp
 
 export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
   const [isActive, setIsActive] = useState(false);
+  const [sleeping, setSleeping] = useState(false);
+  const [personaId, setPersonaId] = useState<PersonaId>(getPersona().id);
   const [conversation, setConversation] = useState<
     { role: "user" | "maya"; text: string; time: number }[]
   >([]);
   const [showSettings, setShowSettings] = useState(false);
+
+  const switchPersona = (id: PersonaId) => {
+    setPersona(id);
+    setPersonaId(id);
+    const p = PERSONAS[id];
+    void voice.speak(`${p.emoji} Done! Ab main ${p.name} hoon.`);
+  };
 
   const { streamWithCallback, settings } = useChat();
   const hasApiKey = !!settings.keys[settings.provider];
@@ -127,13 +138,13 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
   conversationRef.current = conversation;
 
   const restartListeningAfterSpeech = useCallback(() => {
-    if (!activeRef.current || processingRef.current) return;
+    if (!activeRef.current || processingRef.current || sleeping) return;
     setTimeout(() => {
-      if (activeRef.current && !processingRef.current) {
+      if (activeRef.current && !processingRef.current && !sleeping) {
         voice.startListening(handleVoiceMessage, false);
       }
     }, 800);
-  }, [voice]);
+  }, [voice, sleeping]);
 
   const handleVoiceMessage = useCallback(
     async (text: string) => {
@@ -251,6 +262,7 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
       voice.stopSpeaking();
     } else {
       activeRef.current = true;
+      setSleeping(false);
       setIsActive(true);
       setConversation([]);
 
@@ -385,6 +397,58 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
             </div>
           </div>
 
+          {/* Persona Bar + Status (video jaisa HUD) */}
+          <div className="relative z-10 flex items-center justify-center gap-2 px-4 pb-2 flex-wrap">
+            {Object.values(PERSONAS).map((p) => (
+              <button
+                key={p.id}
+                onClick={() => switchPersona(p.id)}
+                className={cn(
+                  "px-3 py-1.5 rounded-full border text-[11px] font-medium transition-all",
+                  personaId === p.id
+                    ? "bg-maya-cyan/15 border-maya-cyan/50 text-white shadow-lg shadow-maya-cyan/10"
+                    : "bg-white/3 border-white/10 text-white/50 hover:border-white/25"
+                )}
+              >
+                {p.emoji} {p.name}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                const next = !sleeping;
+                setSleeping(next);
+                if (next) {
+                  voice.stopListening();
+                  voice.stopSpeaking();
+                } else if (activeRef.current) {
+                  voice.startListening(handleVoiceMessage, false);
+                }
+              }}
+              className={cn(
+                "px-3 py-1.5 rounded-full border text-[11px] font-medium transition-all",
+                sleeping
+                  ? "bg-maya-purple/20 border-maya-purple/50 text-maya-purple"
+                  : "bg-white/3 border-white/10 text-white/50 hover:border-white/25"
+              )}
+            >
+              {sleeping ? "🔴 Wake" : "💤 Sleep"}
+            </button>
+          </div>
+
+          {/* Status line */}
+          <div className="relative z-10 text-center mb-2">
+            <span className={cn(
+              "text-[11px] tracking-wider uppercase",
+              sleeping ? "text-maya-purple/70" : isActive ? "text-maya-cyan/80" : "text-white/30"
+            )}>
+              {sleeping
+                ? "😴 Sleep mode — Wake dabao"
+                : isActive
+                  ? voice.isListening ? "🎙️ Sun rahi hoon..." : voice.isSpeaking ? "🗣️ Bol rahi hoon..." : "⚡ Ready"
+                  : "Mic dabao — Maya sunne ke liye taiyar"}
+            </span>
+          </div>
+
           {/* Main Content */}
           <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
             {/* Orbital System */}
@@ -486,8 +550,42 @@ export default function VoiceAgent({ isOpen, onClose }: VoiceAgentProps) {
             </div>
 
             {/* Audio Waveform */}
-            <div className="w-full max-w-xs mb-6">
+            <div className="w-full max-w-xs mb-4">
               <AudioWaveform isListening={voice.isListening} isSpeaking={voice.isSpeaking} />
+            </div>
+
+            {/* Quick Actions Row */}
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={async () => {
+                  if (!isActive) return;
+                  await handleVoiceMessage("look at my screen");
+                }}
+                disabled={!isActive}
+                className={cn(
+                  "px-4 py-2 rounded-full border text-xs font-medium transition-all",
+                  isActive
+                    ? "bg-maya-purple/10 border-maya-purple/40 text-maya-purple hover:bg-maya-purple/20"
+                    : "bg-white/3 border-white/10 text-white/30"
+                )}
+              >
+                👁️ Look at Screen
+              </button>
+              <button
+                onClick={() => {
+                  const next = !sleeping;
+                  setSleeping(next);
+                  if (next) {
+                    voice.stopListening();
+                    voice.stopSpeaking();
+                  } else if (activeRef.current) {
+                    voice.startListening(handleVoiceMessage, false);
+                  }
+                }}
+                className="px-4 py-2 rounded-full border border-white/15 bg-white/3 text-white/60 text-xs font-medium hover:bg-white/10 transition-all"
+              >
+                {sleeping ? "🔴 Wake" : "💤 Sleep"}
+              </button>
             </div>
 
             {/* Status */}
@@ -634,6 +732,7 @@ function VoiceSettingsModal({
   const [rate, setRate] = useState(voiceSettings.speechRate);
   const [pitch, setPitch] = useState(voiceSettings.speechPitch);
   const [selectedBrowserVoice, setSelectedBrowserVoice] = useState(voiceSettings.selectedVoiceName);
+  const [selectedCloudVoice, setSelectedCloudVoice] = useState(voiceSettings.cloudVoice || "Raveena");
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testVoice, setTestVoice] = useState("");
@@ -650,6 +749,7 @@ function VoiceSettingsModal({
     setTtsProvider(voiceSettings.ttsProvider);
     setElevenKey(voiceSettings.elevenLabsApiKey);
     setVoiceId(voiceSettings.elevenLabsVoiceId);
+    setSelectedCloudVoice(voiceSettings.cloudVoice || "Raveena");
     setRate(voiceSettings.speechRate);
     setPitch(voiceSettings.speechPitch);
     setSaved(false);
@@ -661,6 +761,7 @@ function VoiceSettingsModal({
       ttsProvider,
       elevenLabsApiKey: elevenKey,
       elevenLabsVoiceId: voiceId,
+      cloudVoice: selectedCloudVoice,
       speechRate: rate,
       speechPitch: pitch,
       selectedVoiceName: selectedBrowserVoice,
@@ -672,6 +773,17 @@ function VoiceSettingsModal({
   const previewVoice = () => {
     window.speechSynthesis.cancel();
     const text = "Hello! I'm Maya, your personal AI assistant. How can I help you today?";
+    if (ttsProvider === "cloud") {
+      setTestVoice("speaking");
+      const audio = new Audio(
+        `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(selectedCloudVoice)}&text=${encodeURIComponent(text)}`
+      );
+      audio.onended = () => setTestVoice("");
+      audio.onerror = () => setTestVoice("");
+      void audio.play().catch(() => setTestVoice(""));
+      setTimeout(() => setTestVoice(""), 6000);
+      return;
+    }
     if (ttsProvider === "native" && isNativePlatform()) {
       setTestVoice("speaking");
       void nativeSpeak(text, { rate, pitch, language: "en-IN" });
@@ -716,7 +828,21 @@ function VoiceSettingsModal({
 
         <div className="mb-4">
           <label className="text-xs text-white/40 mb-1.5 block">Voice Engine</label>
-          <div className={cn("grid gap-2", isNativePlatform() ? "grid-cols-3" : "grid-cols-2")}>
+          <div className="grid grid-cols-2 gap-2">
+            {isNativePlatform() && (
+              <button
+                onClick={() => setTtsProvider("cloud")}
+                className={cn(
+                  "p-2.5 rounded-lg border text-left transition-all text-xs",
+                  ttsProvider === "cloud"
+                    ? "bg-maya-cyan/10 border-maya-cyan/40 text-white"
+                    : "bg-white/3 border-white/10 text-white/60"
+                )}
+              >
+                <p className="font-medium">🌟 Cloud Voice</p>
+                <p className="text-white/30 text-[10px]">Natural • JARVIS jaisi</p>
+              </button>
+            )}
             {isNativePlatform() && (
               <button
                 onClick={() => setTtsProvider("native")}
@@ -728,7 +854,7 @@ function VoiceSettingsModal({
                 )}
               >
                 <p className="font-medium">Native</p>
-                <p className="text-white/30 text-[10px]">On-Device • Hindi ✓</p>
+                <p className="text-white/30 text-[10px]">Offline • Hindi ✓</p>
               </button>
             )}
             <button
@@ -772,6 +898,41 @@ function VoiceSettingsModal({
                 {showKey ? <EyeOff className="w-3.5 h-3.5 text-white/30" /> : <Eye className="w-3.5 h-3.5 text-white/30" />}
               </button>
             </div>
+          </div>
+        )}
+
+        {ttsProvider === "cloud" && (
+          <div className="mb-4 space-y-3">
+            <div>
+              <label className="text-[11px] text-white/40 mb-1 block">Natural Voice (7 options)</label>
+              <select
+                value={selectedCloudVoice}
+                onChange={(e) => setSelectedCloudVoice(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs appearance-none outline-none"
+              >
+                {CLOUD_VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 mb-1 block">Speed: {rate.toFixed(1)}x</label>
+              <input type="range" min="0.6" max="1.6" step="0.05" value={rate}
+                onChange={(e) => setRate(parseFloat(e.target.value))}
+                className="w-full accent-maya-cyan" />
+            </div>
+            <button
+              onClick={previewVoice}
+              disabled={testVoice === "speaking"}
+              className={cn(
+                "w-full py-2 rounded-lg border text-xs font-medium transition-all",
+                testVoice === "speaking"
+                  ? "bg-maya-cyan/10 border-maya-cyan/30 text-maya-cyan"
+                  : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+              )}
+            >
+              {testVoice === "speaking" ? "Speaking..." : "🔊 Preview Natural Voice"}
+            </button>
           </div>
         )}
 

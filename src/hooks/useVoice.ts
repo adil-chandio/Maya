@@ -11,9 +11,10 @@ import {
 } from "../lib/native/maya-native";
 
 export interface VoiceSettings {
-  ttsProvider: "native" | "browser" | "elevenlabs";
+  ttsProvider: "cloud" | "native" | "browser" | "elevenlabs";
   elevenLabsApiKey: string;
   elevenLabsVoiceId: string;
+  cloudVoice: string; // natural online voice id
   speechRate: number;
   speechPitch: number;
   continuousMode: boolean;
@@ -21,15 +22,27 @@ export interface VoiceSettings {
   selectedVoiceName: string; // browser voice name
 }
 
-// On the Android APK, native TTS is the best default (offline, low latency)
+// Natural, human-like voices (free cloud TTS — Google-quality voices, no key needed)
+export const CLOUD_VOICES = [
+  { id: "Raveena", name: "🌸 Raveena — Indian Female", desc: "Hinglish ke liye best, bilkul natural" },
+  { id: "Aditi", name: "🪷 Aditi — Hindi Female", desc: "Pure Hindi, sweet awaaz" },
+  { id: "Joanna", name: "🎀 Joanna — US Female", desc: "Soft & clear, JARVIS vibes" },
+  { id: "Salli", name: "✨ Salli — US Female", desc: "Warm & friendly" },
+  { id: "Aria", name: "💕 Aria — US Female", desc: "Expressive, young" },
+  { id: "Brian", name: "🎩 Brian — UK Male", desc: "Deep & confident" },
+  { id: "Matthew", name: "🎙️ Matthew — US Male", desc: "Calm, reliable" },
+];
+
+// On Android, the NATURAL cloud voice is the default (hot, non-robotic)
 function getDefaultTtsProvider(): VoiceSettings["ttsProvider"] {
-  return isNativePlatform() ? "native" : "browser";
+  return isNativePlatform() ? "cloud" : "browser";
 }
 
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   ttsProvider: getDefaultTtsProvider(),
   elevenLabsApiKey: "",
   elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+  cloudVoice: "Raveena",
   speechRate: 1.05,
   speechPitch: 1.15,
   continuousMode: true,
@@ -120,6 +133,15 @@ function findBestVoice(preferredName?: string): SpeechSynthesisVoice | null {
 
   // Last fallback: any English voice
   return voices.find((v) => v.lang.startsWith("en")) || null;
+}
+
+// ===== NATURAL CLOUD TTS (free, no key — Google-quality voices) =====
+async function ttsCloud(text: string, voice: string): Promise<string> {
+  const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Cloud TTS error ${response.status}`);
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 // ElevenLabs TTS
@@ -246,7 +268,37 @@ export function useVoice() {
       setIsSpeaking(true);
 
       try {
-        // ===== NATIVE ANDROID TTS (default on APK) =====
+        // ===== NATURAL CLOUD VOICE (default on APK — pyari, human-like awaaz) =====
+        if (settings.ttsProvider === "cloud") {
+          try {
+            const audioUrl = await ttsCloud(cleanedText, settings.cloudVoice || "Raveena");
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
+            audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(audioUrl); };
+            await audio.play();
+            return;
+          } catch (e) {
+            console.warn("Cloud TTS failed, falling back to native:", e);
+            // fallback → native Android TTS
+            if (isNativePlatform()) {
+              if (!nativeTtsCleanupRef.current) {
+                nativeTtsCleanupRef.current = await nativeOnTtsEnd({
+                  onEnd: () => setIsSpeaking(false),
+                  onError: () => setIsSpeaking(false),
+                });
+              }
+              const res = await nativeSpeak(cleanedText, {
+                rate: settings.speechRate,
+                pitch: settings.speechPitch,
+                language: settings.language,
+              });
+              if (res.success) return;
+            }
+          }
+        }
+
+        // ===== NATIVE ANDROID TTS (offline fallback) =====
         if (settings.ttsProvider === "native" && isNativePlatform()) {
           // Register end/error listeners once
           if (!nativeTtsCleanupRef.current) {
@@ -335,11 +387,8 @@ export function useVoice() {
     async (onResult: (text: string) => void, continuous = false) => {
       // ===== NATIVE ANDROID SPEECH RECOGNIZER (WebView me Web Speech API nahi hoti) =====
       if (isNativePlatform() && await nativeSpeechAvailable()) {
-        const hasPermission = await requestMicPermission();
-        if (!hasPermission) {
-          setIsListening(false);
-          return;
-        }
+        // IMPORTANT: yahan getUserMedia mat maango — MayaSpeechPlugin khud runtime
+        // RECORD_AUDIO permission request karta hai (Capacitor annotation se)
         // Register native listeners once
         if (!nativeSpeechCleanupRef.current) {
           nativeSpeechCleanupRef.current = await nativeOnSpeech({

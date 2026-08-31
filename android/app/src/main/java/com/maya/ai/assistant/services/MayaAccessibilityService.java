@@ -24,6 +24,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -234,6 +235,13 @@ public class MayaAccessibilityService extends AccessibilityService {
                 res.put("packageName", activePackage);
                 res.put("windowTitle", activeWindowTitle);
                 callback.onResult(res);
+                break;
+            }
+            case "playFirstResult": {
+                boolean ok = tapFirstVideoResult(params.optInt("timeoutMs", 8000));
+                callback.onResult(ok
+                        ? okResult("Video mili, play ho rahi hai")
+                        : error("Pehli video result nahi mili (YouTube app khula hai? tap karke khud try karein)"));
                 break;
             }
             case "dump": {
@@ -531,6 +539,63 @@ public class MayaAccessibilityService extends AccessibilityService {
             }
             try {
                 Thread.sleep(300);
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    // =====================================================================
+    // PLAY FIRST YOUTUBE RESULT (search ke baad pehli video autoplay)
+    // =====================================================================
+
+    private boolean tapFirstVideoResult(int timeoutMs) {
+        final Set<String> skip = new HashSet<>(Arrays.asList(
+                "shorts", "all", "videos", "playlists", "live", "filters", "more",
+                "music", "podcasts", "news", "trending", "subscriptions", "you",
+                "home", "search", "downloads", "library", "comments", "like",
+                "share", "save", "create", "history", "settings", "profile",
+                "bell", "menu", "up next", "autoplay", "popular", "latest",
+                "watch later", "your videos", "show more", "show less", "sort by"
+        ));
+
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) {
+                final List<AccessibilityNodeInfo> candidates = new ArrayList<>();
+                collect(root, node -> {
+                    if (node == null) return false;
+                    CharSequence t = node.getText();
+                    if (t == null) return false;
+                    String s = t.toString().trim();
+                    if (s.length() < 6 || s.length() > 90) return false;
+                    if (skip.contains(s.toLowerCase())) return false;
+                    // Woh text jiska parent/self clickable ho = video card ka title
+                    AccessibilityNodeInfo p = node.getParent();
+                    return node.isClickable() || (p != null && p.isClickable());
+                }, candidates, 0, 80);
+
+                if (!candidates.isEmpty()) {
+                    // Sabse upar wala result (chhota top Y) tap karo
+                    Rect bestRect = new Rect();
+                    AccessibilityNodeInfo best = null;
+                    int bestY = Integer.MAX_VALUE;
+                    for (AccessibilityNodeInfo n : candidates) {
+                        n.getBoundsInScreen(bestRect);
+                        if (bestRect.top < bestY) {
+                            bestY = bestRect.top;
+                            best = n;
+                        }
+                    }
+                    if (best != null && clickNode(best)) {
+                        return true;
+                    }
+                }
+            }
+            try {
+                Thread.sleep(400);
             } catch (InterruptedException e) {
                 break;
             }

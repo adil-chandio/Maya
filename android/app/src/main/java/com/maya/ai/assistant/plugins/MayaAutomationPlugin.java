@@ -216,6 +216,48 @@ public class MayaAutomationPlugin extends Plugin {
         call.resolve(out);
     }
 
+    @PluginMethod
+    public void openYouTubeSearch(PluginCall call) {
+        String query = call.getString("query", "");
+        try {
+            // YouTube app ke andar search kholo (deep link)
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("vnd.youtube:search?query=" + Uri.encode(query)));
+            i.setPackage("com.google.android.youtube");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            launchIntent(i);
+            call.resolve(success("YouTube search khul gaya"));
+        } catch (Exception e) {
+            // YouTube app nahi hai → browser fallback
+            try {
+                Intent b = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)));
+                b.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                launchIntent(b);
+                call.resolve(failure("YouTube app nahi mila — browser me search khol diya"));
+            } catch (Exception e2) {
+                call.resolve(failure("YouTube nahi khul paya: " + e2.getMessage()));
+            }
+        }
+    }
+
+    @PluginMethod
+    public void isAppInstalled(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        boolean installed = false;
+        if (pkg != null && !pkg.isEmpty()) {
+            try {
+                getContext().getPackageManager().getPackageInfo(pkg, 0);
+                installed = true;
+            } catch (Exception ignored) { }
+        }
+        JSObject out = new JSObject();
+        out.put("installed", installed);
+        out.put("packageName", pkg);
+        out.put("success", true);
+        call.resolve(out);
+    }
+
     // =====================================================================
     // VOLUME
     // =====================================================================
