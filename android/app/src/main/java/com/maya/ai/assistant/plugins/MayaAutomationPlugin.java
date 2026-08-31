@@ -139,7 +139,7 @@ public class MayaAutomationPlugin extends Plugin {
                         Uri.parse("https://play.google.com/store/search?q=" + Uri.encode(name)));
                 store.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    startActivity(store);
+                    launchIntent(store);
                     call.resolve(failure("App installed nahi mila. Play Store me search khol diya."));
                 } catch (Exception e) {
                     call.resolve(failure("App nahi mila aur Play Store nahi khul paya."));
@@ -155,7 +155,7 @@ public class MayaAutomationPlugin extends Plugin {
         }
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            startActivity(launch);
+            launchIntent(launch);
             call.resolve(success("App open kar diya: " + pkg));
         } catch (Exception e) {
             call.resolve(failure("App launch nahi hua: " + e.getMessage()));
@@ -406,7 +406,7 @@ public class MayaAutomationPlugin extends Plugin {
             Intent i = new Intent(Settings.ACTION_WIFI_SETTINGS);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
-                startActivity(i);
+                launchIntent(i);
             } catch (Exception ignored) { }
             call.resolve(failure("Android 10+ WiFi programmatically block karta hai — WiFi settings khol diye."));
         }
@@ -447,7 +447,7 @@ public class MayaAutomationPlugin extends Plugin {
             Intent i = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
-                startActivity(i);
+                launchIntent(i);
             } catch (Exception ignored) { }
             call.resolve(failure("Android 13+ Bluetooth programmatically block karta hai — Bluetooth settings khol diye."));
         }
@@ -474,7 +474,7 @@ public class MayaAutomationPlugin extends Plugin {
             alarm.putExtra(AlarmClock.EXTRA_MESSAGE, label);
         }
         try {
-            startActivity(alarm);
+            launchIntent(alarm);
             String time = String.format(Locale.ROOT, "%02d:%02d", hours, minutes);
             call.resolve(success("Alarm set for " + time + (label.isEmpty() ? "" : " (" + label + ")")));
         } catch (Exception e) {
@@ -482,7 +482,7 @@ public class MayaAutomationPlugin extends Plugin {
             try {
                 Intent clock = getContext().getPackageManager().getLaunchIntentForPackage("com.google.android.deskclock");
                 if (clock != null) clock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(clock == null
+                launchIntent(clock == null
                         ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_ALARM)
                         : clock);
                 call.resolve(failure("System alarm API blocked — Clock app khol diya. Alarm manual set karein."));
@@ -532,7 +532,7 @@ public class MayaAutomationPlugin extends Plugin {
             }
             if (i != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(i);
+                launchIntent(i);
                 call.resolve(success("Settings screen khol di: " + screen));
             } else {
                 call.resolve(failure("Unknown settings screen: " + screen));
@@ -616,6 +616,15 @@ public class MayaAutomationPlugin extends Plugin {
     // =====================================================================
     // HELPERS
     // =====================================================================
+
+
+    /** Plugin class startActivity() expose nahi karta — activity ke through launch karo. */
+    private void launchIntent(Intent intent) {
+        android.app.Activity activity = getActivity();
+        if (activity != null) {
+            activity.startActivity(intent);
+        }
+    }
 
     private JSObject success(String message) {
         JSObject o = new JSObject();
